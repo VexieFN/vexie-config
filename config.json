@@ -3,8 +3,14 @@
 
   "message": "Welcome to VEXIE SYSTEM",
 
+  "verify_codes": [
+    "VEXIE123",
+    "PREMIUM777",
+    "TEST999"
+  ],
+
   "premium_ids": [
-    
+
   ],
 
   "banned_ids": [
