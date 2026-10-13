@@ -2063,6 +2063,15 @@ Oggi è ${now.toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', mon
     applyTheme();
     matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
     window.addEventListener('hashchange', router);
+    // Le installazioni fatte con la prima versione erano bloccate in verticale (Android ricorda l'orientamento
+    // del manifest al momento dell'installazione): nell'app installata chiediamo di permettere la rotazione.
+    try {
+      if (matchMedia('(display-mode: standalone)').matches && screen.orientation && screen.orientation.lock) {
+        screen.orientation.lock('any').catch(() => {});
+      }
+    } catch (e) {
+      /* non supportato */
+    }
     // toccare la voce del menu della pagina in cui sei già la ricarica (es. torna alla schermata iniziale del quiz)
     document.addEventListener('click', (e) => {
       const a = e.target.closest('a[href^="#/"]');
