@@ -213,6 +213,15 @@ const Gemini = (() => {
     return m;
   }
 
+  async function pdfPart(blob, onStatus) {
+    if (blob.size > 48 * 1024 * 1024) throw new Error('PDF troppo grande (max 50 MB). Dividilo in parti più piccole.');
+    if (blob.size <= INLINE_LIMIT) {
+      onStatus && onStatus('Preparo il PDF…');
+      return { inlineData: { mimeType: 'application/pdf', data: await U.blobToBase64(blob) } };
+    }
+    return uploadFile(blob, 'application/pdf', 'documento-' + Date.now(), onStatus);
+  }
+
   async function audioPart(blob, onStatus) {
     const mime = cleanMime(blob.type);
     if (blob.size <= INLINE_LIMIT) {
@@ -325,7 +334,7 @@ Se il contenuto didattico è quasi assente, dillo onestamente nel riassunto e pr
     }
   }
 
-  async function analyzeLesson({ audioBlob, transcript, bookmarks, notesText, images, subjectName, signal, onStatus }) {
+  async function analyzeLesson({ audioBlob, pdfBlob, pages, transcript, bookmarks, notesText, images, subjectName, signal, onStatus }) {
     const s = Store.settings();
     const subjects = Store.subjects().map((x) => x.name);
     const now = new Date();
@@ -341,6 +350,11 @@ Se il contenuto didattico è quasi assente, dillo onestamente nel riassunto e pr
         onStatus && onStatus('Audio troppo grande: uso la trascrizione…');
       }
     }
+    let pdfUsed = false;
+    if (pdfBlob) {
+      parts.push(await pdfPart(pdfBlob, onStatus));
+      pdfUsed = true;
+    }
     for (const img of images || []) parts.push({ inlineData: { mimeType: img.mime, data: img.data } });
 
     const ctx = [
@@ -349,9 +363,15 @@ Se il contenuto didattico è quasi assente, dillo onestamente nel riassunto e pr
         ? `Materia indicata dallo studente: ${subjectName}.`
         : `Materia non indicata: scegli la più adatta tra: ${subjects.join(', ')}.`,
       DETAIL[s.detail] || DETAIL.normale,
-      audioUsed
-        ? 'È allegato l\'AUDIO della lezione: è la fonte principale. Ascoltalo tutto distinguendo la voce dell\'insegnante dal rumore di fondo.'
-        : 'Audio non disponibile: lavora sul testo fornito.',
+      pdfUsed
+        ? 'È allegato un DOCUMENTO PDF (libro, dispensa, slide o appunti): è la fonte principale e non ci sono rumori da filtrare. ' +
+          'In "cleanTranscript" scrivi una spiegazione completa e ordinata del contenuto, come degli ottimi appunti; ' +
+          'in "filteredNoise" indica brevemente cosa hai tralasciato (indici, esercizi, bibliografia…); ' +
+          '"explanationPercent" = percentuale del documento che è contenuto di studio. Mantieni formule, date e definizioni esatte.' +
+          (pages ? ` Concentrati SOLO sulle pagine ${pages}.` : '')
+        : audioUsed
+          ? 'È allegato l\'AUDIO della lezione: è la fonte principale. Ascoltalo tutto distinguendo la voce dell\'insegnante dal rumore di fondo.'
+          : 'Audio non disponibile: lavora sul testo fornito.',
     ];
     if (bookmarks && bookmarks.length) {
       ctx.push(
@@ -365,12 +385,12 @@ Se il contenuto didattico è quasi assente, dillo onestamente nel riassunto e pr
     if (notesText && notesText.trim()) ctx.push('Appunti/testo forniti dallo studente:\n"""\n' + notesText.slice(0, 200000) + '\n"""');
     if (images && images.length) ctx.push(`Sono allegate ${images.length} foto (lavagna/libro/appunti): leggile e integrale.`);
 
-    if (!audioUsed && !(transcript || '').trim() && !(notesText || '').trim() && !(images || []).length) {
+    if (!audioUsed && !pdfUsed && !(transcript || '').trim() && !(notesText || '').trim() && !(images || []).length) {
       throw new Error('Non c\'è niente da elaborare: nessun audio né testo registrato.');
     }
 
     parts.push({ text: ctx.join('\n\n') + '\n\nGenera ora il materiale di studio nel formato JSON richiesto.' });
-    onStatus && onStatus('L\'AI sta ascoltando e capendo la lezione…');
+    onStatus && onStatus(pdfUsed ? 'L\'AI sta leggendo il PDF…' : 'L\'AI sta ascoltando e capendo la lezione…');
 
     const run = async (p) =>
       generate({
@@ -420,11 +440,124 @@ Se il contenuto didattico è quasi assente, dillo onestamente nel riassunto e pr
     return data;
   }
 
+  /* ---------- Quiz generati dall'AI ---------- */
+  const QUIZ_SCHEMA = S('OBJECT', {
+    properties: {
+      questions: S('ARRAY', {
+        items: S('OBJECT', {
+          properties: {
+            type: S('STRING', { description: 'multipla | vf | aperta' }),
+            question: S('STRING'),
+            options: S('ARRAY', { items: S('STRING'), description: 'Vuoto per le domande aperte; ["Vero","Falso"] per vero/falso' }),
+            correct: S('INTEGER', { description: 'Indice (da 0) della risposta corretta; 0 per le aperte' }),
+            answer: S('STRING', { description: 'Risposta modello (soprattutto per le aperte)' }),
+            explanation: S('STRING'),
+            topic: S('STRING', { description: 'Argomento/lezione da cui viene la domanda' }),
+          },
+          required: ['type', 'question', 'explanation'],
+        }),
+      }),
+    },
+    required: ['questions'],
+  });
+
+  const FORMAT = {
+    multipla: 'tutte a scelta multipla con 4 opzioni (una sola corretta, distrattori plausibili)',
+    vf: 'tutte VERO/FALSO (options = ["Vero","Falso"]), con affermazioni non banali',
+    aperta: 'tutte a RISPOSTA APERTA breve (2-5 righe), options vuoto, con risposta modello in "answer"',
+    misto: 'miste: circa 60% scelta multipla (4 opzioni), 20% vero/falso, 20% risposta aperta',
+  };
+  const LEVEL = {
+    facile: 'FACILE: definizioni e concetti base',
+    media: 'MEDIA: comprensione e collegamenti, come in una verifica normale',
+    difficile: 'DIFFICILE: ragionamento, applicazione, confronti e casi particolari, come una verifica impegnativa',
+  };
+
+  async function generateQuiz({ material, n = 10, difficulty = 'media', format = 'misto', signal }) {
+    const prompt = [
+      `Crea una verifica di ${n} domande basata SOLO sul materiale di studio qui sotto.`,
+      `Difficoltà: ${LEVEL[difficulty] || LEVEL.media}.`,
+      `Formato: ${FORMAT[format] || FORMAT.misto}.`,
+      'Copri argomenti diversi in modo bilanciato, evita domande ripetute, scrivi una spiegazione utile per ogni risposta. Formule in LaTeX tra $...$.',
+      '',
+      'MATERIALE:',
+      '<<<',
+      material.slice(0, 300000),
+      '>>>',
+    ].join('\n');
+    const out = await generate({
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      system: 'Sei un insegnante italiano esperto che prepara verifiche scolastiche chiare, corrette e senza ambiguità.',
+      json: true,
+      schema: QUIZ_SCHEMA,
+      temperature: 0.8,
+      maxTokens: 16384,
+      signal,
+    });
+    const qs = (parseJSON(out.text).questions || []).filter((q) => q && q.question);
+    return qs.map((q) => {
+      const type = q.type === 'aperta' || !(q.options || []).length ? 'open' : q.type === 'vf' ? 'vf' : 'mc';
+      const options = type === 'open' ? [] : q.options;
+      return {
+        type,
+        question: q.question,
+        options,
+        correct: type === 'open' ? 0 : Math.min(Math.max(0, q.correct | 0), options.length - 1),
+        answer: q.answer || '',
+        explanation: q.explanation || '',
+        topic: q.topic || '',
+      };
+    });
+  }
+
+  async function gradeOpenAnswer({ question, modelAnswer, studentAnswer, signal }) {
+    const prompt = [
+      `Domanda: ${question}`,
+      `Risposta di riferimento: ${modelAnswer || '(non fornita: usa le tue conoscenze)'}`,
+      `Risposta dello studente: ${studentAnswer || '(nessuna risposta)'}`,
+      '',
+      'Valuta la risposta dello studente con un voto da 0 a 10 (scala scolastica italiana), in modo giusto ma incoraggiante. Indica cosa va bene e cosa manca.',
+    ].join('\n');
+    const out = await generate({
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      system: 'Sei un professore italiano che corregge risposte brevi in modo equo e costruttivo.',
+      json: true,
+      schema: S('OBJECT', { properties: { score: S('NUMBER'), feedback: S('STRING') }, required: ['score', 'feedback'] }),
+      temperature: 0.2,
+      signal,
+    });
+    const r = parseJSON(out.text);
+    return { score: Math.max(0, Math.min(10, Number(r.score) || 0)), feedback: r.feedback || '' };
+  }
+
+  /* ---------- Scrittura a mano → testo ---------- */
+  async function transcribeHandwriting(images, { signal } = {}) {
+    const out = await generate({
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            ...images.map((img) => ({ inlineData: { mimeType: img.mime, data: img.data } })),
+            {
+              text: 'Trascrivi fedelmente questi appunti scritti a mano. Mantieni la struttura (titoli, elenchi, frecce come "→"), scrivi le formule in LaTeX tra $...$ e descrivi brevemente tra [parentesi quadre] eventuali disegni o schemi. Non aggiungere commenti: restituisci solo il testo in markdown.',
+            },
+          ],
+        },
+      ],
+      temperature: 0.1,
+      signal,
+    });
+    return out.text.trim();
+  }
+
   async function testKey(key) {
     const models = await listModels(key);
     if (!models.length) throw new Error('La key funziona ma non ha modelli Gemini disponibili.');
     return models;
   }
 
-  return { listModels, model, resetModelCache, generate, stream, analyzeLesson, testKey, pickBest };
+  return {
+    listModels, model, resetModelCache, generate, stream, analyzeLesson, testKey, pickBest,
+    generateQuiz, gradeOpenAnswer, transcribeHandwriting,
+  };
 })();

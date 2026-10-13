@@ -1,5 +1,5 @@
 /* Service worker: rende l'app installabile e utilizzabile anche offline (tranne le funzioni AI). */
-const CACHE = 'scuola-ai-v1';
+const CACHE = 'scuola-ai-v2';
 const SHELL = [
   './',
   'index.html',
@@ -12,6 +12,10 @@ const SHELL = [
   'js/mindmap.js',
   'js/components.js',
   'js/app.js',
+  'js/ink.js',
+  'js/notes.js',
+  'js/quiz.js',
+  'js/tools.js',
   'icons/icon.svg',
   'icons/icon-192.png',
   'icons/icon-512.png',

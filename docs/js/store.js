@@ -4,7 +4,7 @@
    Tutti i dati restano sul dispositivo dell'utente. */
 const Store = (() => {
   const DB_NAME = 'scuola-ai';
-  const DB_VERSION = 1;
+  const DB_VERSION = 2;
   const LS = 'scuolaai.';
   let dbPromise = null;
 
@@ -17,6 +17,9 @@ const Store = (() => {
           if (!d.objectStoreNames.contains('lessons')) d.createObjectStore('lessons', { keyPath: 'id' });
           if (!d.objectStoreNames.contains('audio')) d.createObjectStore('audio');
           if (!d.objectStoreNames.contains('chats')) d.createObjectStore('chats');
+          // v2: quaderno (appunti a mano/testo) e file allegati (PDF)
+          if (!d.objectStoreNames.contains('notes')) d.createObjectStore('notes', { keyPath: 'id' });
+          if (!d.objectStoreNames.contains('files')) d.createObjectStore('files');
         };
         req.onsuccess = () => resolve(req.result);
         req.onerror = () => reject(req.error);
@@ -52,7 +55,29 @@ const Store = (() => {
       await run('lessons', 'readwrite', (s) => s.delete(id));
       await run('audio', 'readwrite', (s) => s.delete(id));
       await run('chats', 'readwrite', (s) => s.delete('lesson:' + id));
+      await run('files', 'readwrite', (s) => s.delete(id));
     },
+  };
+
+  const files = {
+    get: (id) => run('files', 'readonly', (s) => s.get(id)),
+    put: (id, blob) => run('files', 'readwrite', (s) => s.put(blob, id)),
+    del: (id) => run('files', 'readwrite', (s) => s.delete(id)),
+  };
+
+  /* ---------- Quaderno ---------- */
+  const notes = {
+    async all() {
+      const list = (await run('notes', 'readonly', (s) => s.getAll())) || [];
+      return list.sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+    },
+    get: (id) => run('notes', 'readonly', (s) => s.get(id)),
+    async put(note) {
+      note.updatedAt = new Date().toISOString();
+      await run('notes', 'readwrite', (s) => s.put(note));
+      return note;
+    },
+    del: (id) => run('notes', 'readwrite', (s) => s.delete(id)),
   };
 
   const audio = {
@@ -131,6 +156,31 @@ const Store = (() => {
     return subjects().find((s) => s.id === id) || { id: '', name: 'Senza materia', emoji: '📝', color: '#8b8d98' };
   }
 
+  /* Liste semplici in localStorage */
+  const list = (key) => ({
+    all: () => lsGet(key, []),
+    save: (v) => lsSet(key, v),
+  });
+  const grades = list('grades'); // voti
+  const quizHistory = list('quizHistory'); // risultati dei quiz
+  const mistakes = list('mistakes'); // domande sbagliate da ripassare
+  const timetable = {
+    get: () =>
+      lsGet('timetable', null) || {
+        days: 6,
+        slots: [
+          ['08:00', '09:00'],
+          ['09:00', '10:00'],
+          ['10:00', '11:00'],
+          ['11:00', '12:00'],
+          ['12:00', '13:00'],
+          ['13:00', '14:00'],
+        ],
+        cells: {},
+      },
+    save: (v) => lsSet('timetable', v),
+  };
+
   function tasks() {
     return lsGet('tasks', []);
   }
@@ -163,12 +213,20 @@ const Store = (() => {
       subjects: subjects(),
       tasks: tasks(),
       lessons: all,
+      notes: await notes.all(),
+      grades: grades.all(),
+      quizHistory: quizHistory.all(),
+      mistakes: mistakes.all(),
+      timetable: timetable.get(),
       audio: {},
+      files: {},
     };
     if (includeAudio) {
       for (const l of all) {
         const b = await audio.get(l.id);
         if (b) out.audio[l.id] = { mime: b.type, data: await U.blobToBase64(b) };
+        const f = await files.get(l.id);
+        if (f) out.files[l.id] = { mime: f.type, data: await U.blobToBase64(f) };
       }
     }
     return out;
@@ -181,25 +239,37 @@ const Store = (() => {
       const ids = new Set(tasks().map((t) => t.id));
       saveTasks([...tasks(), ...data.tasks.filter((t) => !ids.has(t.id))]);
     }
+    const merge = (store, key = 'id') => {
+      if (!Array.isArray(data[store])) return;
+      const ids = new Set(Store[store].all().map((x) => x[key]));
+      Store[store].save([...Store[store].all(), ...data[store].filter((x) => !ids.has(x[key]))]);
+    };
+    merge('grades');
+    merge('quizHistory');
+    merge('mistakes', 'question');
+    if (data.timetable && data.timetable.slots) timetable.save(data.timetable);
+    for (const nt of data.notes || []) await run('notes', 'readwrite', (s) => s.put(nt));
     let n = 0;
     for (const l of data.lessons || []) {
       await run('lessons', 'readwrite', (s) => s.put(l));
       const a = data.audio && data.audio[l.id];
       if (a) await audio.put(l.id, U.base64ToBlob(a.data, a.mime));
+      const f = data.files && data.files[l.id];
+      if (f) await files.put(l.id, U.base64ToBlob(f.data, f.mime));
       n++;
     }
     return n;
   }
 
   async function wipe() {
-    for (const name of ['lessons', 'audio', 'chats']) await run(name, 'readwrite', (s) => s.clear());
+    for (const name of ['lessons', 'audio', 'chats', 'notes', 'files']) await run(name, 'readwrite', (s) => s.clear());
     Object.keys(localStorage)
       .filter((k) => k.startsWith(LS))
       .forEach((k) => localStorage.removeItem(k));
   }
 
   return {
-    lessons, audio, chats, draft,
+    lessons, audio, chats, draft, files, notes, grades, quizHistory, mistakes, timetable,
     settings, saveSettings, subjects, saveSubjects, subject, tasks, saveTasks,
     exportAll, importAll, wipe,
   };

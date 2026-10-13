@@ -34,6 +34,10 @@ const App = (() => {
 
   /* ======================= ROUTER ======================= */
   const routes = { home, record, lessons, lesson, chat, agenda, settings, review };
+  // le altre sezioni (quaderno, quiz, pdf, voti, orario, timer…) si registrano da sole con App.route()
+  const route = (name, fn) => (routes[name] = fn);
+  // voce del menu da evidenziare per le pagine "figlie"
+  const NAV_OF = { lesson: 'lessons', note: 'notes', review: 'quiz' };
 
   async function router() {
     cleanups.forEach((fn) => {
@@ -50,9 +54,15 @@ const App = (() => {
     const [name, arg] = path.split('/');
     const params = Object.fromEntries(new URLSearchParams(query || ''));
     const fn = routes[name] || home;
-    $$('.bottomnav a').forEach((a) => a.classList.toggle('active', a.dataset.route === (routes[name] ? name : 'home')));
-    document.body.dataset.route = routes[name] ? name : 'home';
+    const key = routes[name] ? name : 'home';
+    const navKey = NAV_OF[key] || key;
+    $$('.sidenav a').forEach((a) => a.classList.toggle('active', a.dataset.route === navKey));
+    const bottom = $$('.bottomnav a');
+    const inBottom = bottom.some((a) => a.dataset.route === navKey);
+    bottom.forEach((a) => a.classList.toggle('active', inBottom ? a.dataset.route === navKey : a.dataset.route === 'menu'));
+    document.body.dataset.route = key;
     updateRecPill();
+    Tools.updateTimerUI();
     window.scrollTo(0, 0);
     try {
       await fn(decodeURIComponent(arg || ''), params);
@@ -74,12 +84,19 @@ const App = (() => {
     const tasks = Store.tasks().filter((t) => !t.done);
     tasks.sort((a, b) => (a.due || '9999').localeCompare(b.due || '9999'));
     const due = dueCards(all).length;
-    const hours = all.reduce((sum, l) => sum + (l.duration || 0), 0) / 3600;
     const draft = Recorder.state === 'idle' ? Store.draft.meta() : null;
     const h = new Date().getHours();
     const hello = h < 13 ? 'Buongiorno' : h < 18 ? 'Buon pomeriggio' : 'Buonasera';
     const counts = {};
     all.forEach((l) => (counts[l.subjectId] = (counts[l.subjectId] || 0) + 1));
+    const grades = Store.grades.all();
+    const bySubj = {};
+    grades.forEach((g) => (bySubj[g.subjectId] = bySubj[g.subjectId] || []).push(g));
+    const avgs = Object.values(bySubj).map(Tools.average);
+    const avg = avgs.length ? avgs.reduce((a, b) => a + b, 0) / avgs.length : NaN;
+    const slot = Tools.currentSlot();
+    const nowSubj = slot && slot.subjectId ? Store.subject(slot.subjectId) : null;
+    const nextSubj = slot && slot.next ? Store.subject(slot.next) : null;
 
     view().innerHTML = `
       <section class="hero">
@@ -87,70 +104,81 @@ const App = (() => {
           <p class="muted">${esc(U.fmtDate(new Date().toISOString(), { weekday: 'long', day: 'numeric', month: 'long' }))}</p>
           <h1>${hello}${s.name ? `, ${esc(s.name)}` : ''} 👋</h1>
         </div>
+        ${
+          nowSubj
+            ? `<a href="#/timetable" class="now-chip" style="--c:${nowSubj.color}"><small>Adesso</small><b>${nowSubj.emoji} ${esc(nowSubj.name)}</b>${nextSubj ? `<small>poi ${esc(nextSubj.name)}</small>` : ''}</a>`
+            : ''
+        }
       </section>
 
-      ${
-        !s.apiKey
-          ? `<a href="#/settings" class="card banner banner-warn"><b>🔑 Configura la tua API key di Google</b><span>Serve per creare gli schemi e usare Prof AI. È gratis e ci vuole un minuto →</span></a>`
-          : ''
-      }
-      ${
-        draft
-          ? `<div class="card banner banner-info"><b>💾 Registrazione interrotta trovata</b><span>${esc(U.fmtDateTime(draft.startedAtISO))} · ${U.fmtDuration(draft.duration)} registrati</span>
-             <div class="row"><button class="btn btn-primary" id="draft-recover">Recupera</button><button class="btn btn-ghost" id="draft-del">Elimina</button></div></div>`
-          : ''
-      }
-      ${
-        Recorder.state !== 'idle'
-          ? `<a href="#/record" class="card banner banner-rec"><b>🔴 Stai registrando una lezione</b><span>Tocca per tornare alla registrazione</span></a>`
-          : `<a href="#/record" class="cta">
-               <span class="cta-icon">🎙️</span>
-               <span><b>Ascolta la lezione</b><small>Registra, filtra il casino e crea gli schemi</small></span>
-             </a>`
-      }
+      <div class="home-grid">
+        <div class="home-main">
+          ${
+            !s.apiKey
+              ? `<a href="#/settings" class="card banner banner-warn"><b>🔑 Configura la tua API key di Google</b><span>Serve per creare gli schemi e usare Prof AI. È gratis e ci vuole un minuto →</span></a>`
+              : ''
+          }
+          ${
+            draft
+              ? `<div class="card banner banner-info"><b>💾 Registrazione interrotta trovata</b><span>${esc(U.fmtDateTime(draft.startedAtISO))} · ${U.fmtDuration(draft.duration)} registrati</span>
+                 <div class="row"><button class="btn btn-primary" id="draft-recover">Recupera</button><button class="btn btn-ghost" id="draft-del">Elimina</button></div></div>`
+              : ''
+          }
+          ${
+            Recorder.state !== 'idle'
+              ? `<a href="#/record" class="card banner banner-rec"><b>🔴 Stai registrando una lezione</b><span>Tocca per tornare alla registrazione</span></a>`
+              : `<a href="#/record" class="cta">
+                   <span class="cta-icon">🎙️</span>
+                   <span><b>Ascolta la lezione</b><small>${nowSubj ? `${nowSubj.emoji} ${esc(nowSubj.name)} · ` : ''}Registra, filtra il casino e crea gli schemi</small></span>
+                 </a>`
+          }
 
-      <div class="stats">
-        <a href="#/lessons" class="stat"><b>${all.length}</b><span>lezioni</span></a>
-        <div class="stat">${
-          hours < 1
-            ? `<b>${Math.round(hours * 60)}</b><span>minuti ascoltati</span>`
-            : `<b>${hours < 10 ? hours.toFixed(1).replace('.', ',') : Math.round(hours)}</b><span>ore ascoltate</span>`
-        }</div>
-        <a href="#/review" class="stat ${due ? 'stat-hot' : ''}"><b>${due}</b><span>flashcard oggi</span></a>
-        <a href="#/agenda" class="stat"><b>${tasks.length}</b><span>compiti</span></a>
-      </div>
+          <div class="stats">
+            <a href="#/lessons" class="stat"><b>${all.length}</b><span>lezioni</span></a>
+            <a href="#/review" class="stat ${due ? 'stat-hot' : ''}"><b>${due}</b><span>flashcard oggi</span></a>
+            <a href="#/agenda" class="stat"><b>${tasks.length}</b><span>compiti</span></a>
+            <a href="#/grades" class="stat"><b class="${isNaN(avg) ? '' : avg >= 6 ? 'ok' : 'ko'}">${isNaN(avg) ? '–' : avg.toFixed(1).replace('.', ',')}</b><span>media voti</span></a>
+          </div>
 
-      ${
-        due
-          ? `<a href="#/review" class="card banner banner-study"><b>🧠 Ripasso del giorno</b><span>${U.plural(due, 'flashcard ti aspetta', 'flashcard ti aspettano')}. Bastano 5 minuti!</span></a>`
-          : ''
-      }
+          ${
+            due
+              ? `<a href="#/review" class="card banner banner-study"><b>🧠 Ripasso del giorno</b><span>${U.plural(due, 'flashcard ti aspetta', 'flashcard ti aspettano')}. Bastano 5 minuti!</span></a>`
+              : ''
+          }
 
-      ${
-        tasks.length
-          ? `<section class="section">
-              <div class="section-head"><h2>📅 In arrivo</h2><a href="#/agenda">Tutti</a></div>
-              <div class="list" id="home-tasks">${tasks.slice(0, 4).map(taskRow).join('')}</div>
-            </section>`
-          : ''
-      }
+          <section class="section">
+            <div class="section-head"><h2>🧰 Strumenti</h2><a href="#/menu">Tutti</a></div>
+            ${Tools.toolGrid(Tools.TOOLS.slice(0, 8))}
+          </section>
 
-      <section class="section">
-        <div class="section-head"><h2>📚 Materie</h2><a href="#/settings">Modifica</a></div>
-        <div class="subject-grid">
-          ${Store.subjects()
-            .map(
-              (sub) => `<a class="subject-card" href="#/lessons?subject=${encodeURIComponent(sub.id)}" style="--c:${sub.color}">
-                <span class="subject-emoji">${sub.emoji}</span><b>${esc(sub.name)}</b><small>${U.plural(counts[sub.id] || 0, 'lezione', 'lezioni')}</small></a>`
-            )
-            .join('')}
+          <section class="section">
+            <div class="section-head"><h2>🕘 Ultime lezioni</h2>${all.length ? '<a href="#/lessons">Tutte</a>' : ''}</div>
+            <div class="list">${all.length ? all.slice(0, 5).map(lessonRow).join('') : emptyLessons()}</div>
+          </section>
         </div>
-      </section>
 
-      <section class="section">
-        <div class="section-head"><h2>🕘 Ultime lezioni</h2>${all.length ? '<a href="#/lessons">Tutte</a>' : ''}</div>
-        <div class="list">${all.length ? all.slice(0, 5).map(lessonRow).join('') : emptyLessons()}</div>
-      </section>`;
+        <aside class="home-side">
+          ${
+            tasks.length
+              ? `<section class="section">
+                  <div class="section-head"><h2>📅 In arrivo</h2><a href="#/agenda">Tutti</a></div>
+                  <div class="list" id="home-tasks">${tasks.slice(0, 5).map(taskRow).join('')}</div>
+                </section>`
+              : ''
+          }
+          <section class="section">
+            <div class="section-head"><h2>📚 Materie</h2><a href="#/settings">Modifica</a></div>
+            <div class="subject-grid">
+              ${Store.subjects()
+                .map(
+                  (sub) => `<a class="subject-card" href="#/lessons?subject=${encodeURIComponent(sub.id)}" style="--c:${sub.color}">
+                    <span class="subject-emoji">${sub.emoji}</span><b>${esc(sub.name)}</b><small>${U.plural(counts[sub.id] || 0, 'lezione', 'lezioni')}</small></a>`
+                )
+                .join('')}
+            </div>
+          </section>
+        </aside>
+      </div>`;
 
     if ($('#home-tasks')) bindTaskRows($('#home-tasks'));
     const rec = $('#draft-recover');
@@ -181,7 +209,7 @@ const App = (() => {
             : l.result
               ? `<span class="badge">🧠 ${(l.result.flashcards || []).length} · ❓ ${(l.result.quiz || []).length}</span>`
               : '';
-    const icon = { mic: '🎙️', file: '📁', photo: '📷', text: '📝' }[l.source] || '🎙️';
+    const icon = { mic: '🎙️', file: '📁', photo: '📷', text: '📝', pdf: '📄', note: '✍️' }[l.source] || '🎙️';
     return `<a class="lesson-row" href="#/lesson/${encodeURIComponent(l.id)}" style="--c:${s.color}">
       <span class="lesson-emoji">${s.emoji}</span>
       <span class="lesson-info">
@@ -247,10 +275,13 @@ const App = (() => {
     if (Recorder.state !== 'idle') return renderRecording();
     const s = Store.settings();
     const supported = Recorder.supported();
+    const fromTimetable = !params.subject && Tools.currentSubject();
+    const preSubject = params.subject || fromTimetable || '';
     view().innerHTML = `
+      <div class="record-layout">
       <section class="card">
         <h1 class="page-title">🎙️ Nuova lezione</h1>
-        <label class="field"><span>Materia</span><select id="r-subject" class="input">${subjectOptions(params.subject || '', { auto: true })}</select></label>
+        <label class="field"><span>Materia ${fromTimetable ? '<small class="muted">🗓️ scelta dal tuo orario</small>' : ''}</span><select id="r-subject" class="input">${subjectOptions(preSubject, { auto: true })}</select></label>
         <label class="field"><span>Titolo <small class="muted">(facoltativo, lo trova l'AI)</small></span><input id="r-title" class="input" placeholder="Es. La Rivoluzione francese"></label>
         <div class="toggles">
           <label class="switch"><input type="checkbox" id="r-filter" ${s.voiceFilter ? 'checked' : ''}><span class="slider"></span><span><b>Filtro voce anti-casino</b><small>Riduce rumori, banchi, brusio di fondo</small></span></label>
@@ -270,10 +301,12 @@ const App = (() => {
           <button class="source-btn" id="r-file"><span>📁</span><b>File audio</b><small>Registrazione già fatta</small></button>
           <button class="source-btn" id="r-photo"><span>📷</span><b>Foto</b><small>Lavagna, libro, appunti</small></button>
           <button class="source-btn" id="r-text"><span>📝</span><b>Testo</b><small>Incolla appunti</small></button>
+          <a class="source-btn" href="#/pdf"><span>📄</span><b>PDF</b><small>Libro, dispensa, slide</small></a>
         </div>
         <input type="file" id="f-audio" accept="audio/*,video/mp4,video/webm,.m4a,.mp3,.wav,.ogg,.webm,.aac,.flac" hidden>
         <input type="file" id="f-photo" accept="image/*" multiple hidden>
-      </section>`;
+      </section>
+      </div>`;
 
     const subj = () => $('#r-subject').value;
     const title = () => $('#r-title').value.trim();
@@ -391,6 +424,7 @@ const App = (() => {
     const meta = Recorder.meta;
     view().innerHTML = `
       <section class="rec-screen">
+        <div class="rec-left">
         <div class="rec-top">
           ${meta.subjectId ? subjectChip(meta.subjectId) : '<span class="chip">🤖 Materia automatica</span>'}
           <span id="rec-badge" class="rec-badge">● REC</span>
@@ -413,7 +447,8 @@ const App = (() => {
           <button class="btn btn-primary">+</button>
         </form>
         <div id="rec-marks" class="marks"></div>
-        <div class="card">
+        </div>
+        <div class="card rec-right">
           <div class="section-head"><h3>📝 Trascrizione dal vivo</h3><span id="recog-status" class="muted small"></span></div>
           <div id="rec-transcript" class="transcript live"><p class="muted">${meta.live ? 'In ascolto…' : 'Trascrizione live disattivata: l\'AI ascolterà l\'audio alla fine.'}</p></div>
         </div>
@@ -645,8 +680,12 @@ const App = (() => {
     };
     try {
       const blob = l.hasAudio ? await Store.audio.get(id) : null;
+      const pdfBlob = l.hasPdf ? await Store.files.get(id) : null;
+      if (l.hasPdf && !pdfBlob) throw new Error('Il file PDF non è più disponibile su questo dispositivo.');
       const raw = await Gemini.analyzeLesson({
         audioBlob: blob,
+        pdfBlob,
+        pages: l.pages,
         transcript: l.transcript,
         bookmarks: l.bookmarks,
         notesText: l.inputText,
@@ -744,6 +783,7 @@ const App = (() => {
           l.bookmarks && l.bookmarks.length ? ` · ⭐ ${l.bookmarks.length}` : ''
         }</p>
         ${l.hasAudio ? `<audio id="l-audio" controls preload="metadata" class="audio"></audio>` : ''}
+        ${l.hasPdf ? `<button class="btn btn-sm" id="l-pdf">📄 Apri il PDF${l.fileName ? ` · ${esc(l.fileName)}` : ''}${l.pages ? ` (pag. ${esc(l.pages)})` : ''}</button>` : ''}
       </section>
       <div id="l-body"></div>`;
 
@@ -757,6 +797,16 @@ const App = (() => {
         onCleanup(() => URL.revokeObjectURL(url));
       });
     }
+
+    const pdfBtn = $('#l-pdf');
+    if (pdfBtn)
+      pdfBtn.onclick = async () => {
+        const f = await Store.files.get(id);
+        if (!f) return U.toast('PDF non disponibile', 'error');
+        const url = URL.createObjectURL(f.type ? f : new Blob([f], { type: 'application/pdf' }));
+        if (!window.open(url, '_blank')) U.download(l.fileName || 'documento.pdf', f);
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+      };
 
     $('#l-title').onclick = async () => {
       const t = await U.ask('Rinomina lezione', { value: l.title });
@@ -819,7 +869,10 @@ const App = (() => {
 
     body.innerHTML = `
       <nav class="tabs" id="l-tabs">${TABS.map(
-        ([k, ic, label]) => `<button class="tab ${k === lastLessonTab ? 'active' : ''}" data-tab="${k}">${ic} ${label}</button>`
+        ([k, ic, label]) =>
+          `<button class="tab ${k === lastLessonTab ? 'active' : ''}" data-tab="${k}">${ic} ${
+            k === 'spiegazione' && !['mic', 'file'].includes(l.source) ? 'Contenuto' : label
+          }</button>`
       ).join('')}</nav>
       <div id="tab-content" class="tab-content"></div>`;
     const showTab = (k) => {
@@ -1030,10 +1083,14 @@ const App = (() => {
         });
         break;
       }
-      case 'quiz':
-        el.innerHTML = '<div id="quiz"></div>';
-        UI.quiz($('#quiz'), r.quiz);
+      case 'quiz': {
+        el.innerHTML = `<div class="row wrap quiz-links"><a class="btn btn-sm" href="#/quiz?subject=${encodeURIComponent(l.subjectId || '')}&mode=ai">✨ Quiz nuovo con l'AI</a></div><div id="quiz"></div>`;
+        const ctrl = UI.quiz($('#quiz'), r.quiz.map((q) => ({ type: 'mc', ...q, subjectId: l.subjectId })), {
+          onFinish: (res) => QuizCenter.record(res, { label: `Lezione · ${l.title}`, subjectId: l.subjectId, mode: 'lezione' }),
+        });
+        onCleanup(() => ctrl.stop());
         break;
+      }
       case 'interroga': {
         el.innerHTML = `
           <div class="card center">
@@ -1062,9 +1119,16 @@ const App = (() => {
       }
       case 'note': {
         el.innerHTML = `
-          <p class="muted small">I tuoi appunti personali su questa lezione (salvataggio automatico). Puoi anche salvare qui le risposte di Prof AI.</p>
+          <div class="card banner banner-info note-link"><b>✍️ Vuoi scrivere a mano?</b><span>Apri il quaderno di questa lezione: penna, evidenziatore e pagine di testo.</span>
+            <div class="row"><button class="btn btn-primary" id="l-notebook">Apri il quaderno</button></div></div>
+          <p class="muted small">Appunti veloci su questa lezione (salvataggio automatico). Puoi anche salvare qui le risposte di Prof AI.</p>
           <textarea id="l-notes" class="input notes" rows="14" placeholder="Scrivi qui…">${esc(l.notes || '')}</textarea>
           <p class="small muted" id="notes-saved"></p>`;
+        $('#l-notebook').onclick = async () => {
+          const existing = (await Store.notes.all()).find((n) => n.lessonId === l.id);
+          const note = existing || (await Notes.createNote({ title: `Appunti · ${l.title}`, subjectId: l.subjectId, lessonId: l.id }));
+          go(`#/note/${note.id}`);
+        };
         const ta = $('#l-notes');
         const save = U.debounce(async () => {
           const fresh = await Store.lessons.get(l.id);
@@ -1328,6 +1392,15 @@ Oggi è ${now.toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', mon
         else if (l.transcript) sys += `\n## Trascrizione (grezza)\n${l.transcript.slice(0, 60000)}\n`;
         if (l.inputText) sys += `\n## Testo fornito\n${l.inputText.slice(0, 30000)}\n`;
       }
+    } else if (type === 'note') {
+      const n = await Store.notes.get(id);
+      if (n) {
+        sys += `\n\nCONTESTO: lo studente ti fa domande sui suoi appunti "${n.title}" (${Store.subject(n.subjectId).name}).`;
+        const txt = Notes.noteText(n);
+        if (txt) sys += `\n## Appunti scritti\n${txt.slice(0, 60000)}\n`;
+        if (n.pages.some((p) => p.type === 'ink' && !Ink.isEmpty(p)))
+          sys += '\nLe pagine scritte a mano sono allegate come immagini nel primo messaggio: leggile.';
+      }
     } else if (type === 'subject') {
       const s = Store.subject(id);
       const ls = (await getLessons()).filter((l) => l.subjectId === id && l.result).slice(0, 30);
@@ -1347,6 +1420,7 @@ Oggi è ${now.toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', mon
   async function chat(_, params) {
     let ctx = params.ctx || 'general';
     const all = await getLessons();
+    const allNotes = ctx.startsWith('note:') ? await Store.notes.all() : [];
     const subs = Store.subjects();
     let msgs = await Store.chats.get(ctx);
     let pendingImage = null;
@@ -1361,6 +1435,10 @@ Oggi è ${now.toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', mon
       if (t === 'subject') {
         const s = Store.subject(id);
         return `${s.emoji} Tutta ${s.name}`;
+      }
+      if (t === 'note') {
+        const n = allNotes.find((x) => x.id === id);
+        return `✍️ ${n ? n.title : 'Appunti'}`;
       }
       return '💬 Domande libere';
     };
@@ -1394,6 +1472,8 @@ Oggi è ${now.toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', mon
     const suggestions = () => {
       if (ctx.startsWith('lesson:'))
         return ['Spiegami la parte più difficile', 'Fammi 5 domande per verificare se ho capito', 'Fammi uno schema riassuntivo a punti', 'Collegala con altri argomenti'];
+      if (ctx.startsWith('note:'))
+        return ['Spiegami meglio i miei appunti', 'Ci sono errori nei miei appunti?', 'Fammi 5 domande su questi appunti', 'Riordinali in uno schema chiaro'];
       if (ctx.startsWith('subject:'))
         return ['Riassumi tutto il programma fatto finora', 'Quali argomenti potrebbero uscire in verifica?', 'Fammi una verifica simulata', 'Trova i collegamenti tra le lezioni'];
       return ['Spiegami il teorema di Pitagora', 'Aiutami a fare un tema', 'Correggi questo esercizio (manda una foto 📷)', 'Dammi un metodo di studio efficace'];
@@ -1554,6 +1634,12 @@ Oggi è ${now.toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', mon
           role: m.role,
           parts: [...(m.image ? [{ inlineData: { mimeType: m.image.mime, data: m.image.data } }] : []), { text: m.text || '…' }],
         }));
+      if (ctx.startsWith('note:') && contents.length && contents[0].role === 'user') {
+        // le pagine scritte a mano vengono mandate come immagini insieme al primo messaggio
+        const n = await Store.notes.get(ctx.slice(5));
+        const imgs = n ? n.pages.filter((p) => p.type === 'ink' && !Ink.isEmpty(p)).slice(0, 4) : [];
+        contents[0].parts.unshift(...imgs.map((p) => ({ inlineData: { mimeType: 'image/jpeg', data: Ink.toImage(p, { width: 1000, quality: 0.8 }).data } })));
+      }
       ctrl = new AbortController();
       setBusy(true);
       let raf = 0;
@@ -1804,7 +1890,7 @@ Oggi è ${now.toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', mon
         <p class="small muted" id="s-storage">Tutto è salvato solo su questo dispositivo.</p>
         <div class="row wrap">
           <button class="btn" id="b-export">⬇️ Backup</button>
-          <button class="btn" id="b-export-audio">⬇️ Backup con audio</button>
+          <button class="btn" id="b-export-audio">⬇️ Backup con audio e PDF</button>
           <button class="btn" id="b-import">⬆️ Ripristina</button>
           <input type="file" id="b-file" accept=".json,application/json" hidden>
         </div>
@@ -1977,6 +2063,14 @@ Oggi è ${now.toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', mon
     applyTheme();
     matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
     window.addEventListener('hashchange', router);
+    // toccare la voce del menu della pagina in cui sei già la ricarica (es. torna alla schermata iniziale del quiz)
+    document.addEventListener('click', (e) => {
+      const a = e.target.closest('a[href^="#/"]');
+      if (a && a.getAttribute('href') === location.hash && !e.defaultPrevented) {
+        e.preventDefault();
+        router();
+      }
+    });
 
     // pill "REC" nell'header quando si registra e si naviga altrove
     let lastPill = 0;
@@ -2006,7 +2100,14 @@ Oggi è ${now.toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', mon
     router();
   }
 
-  return { init, processLesson, go };
+  /* Funzioni condivise con gli altri moduli (quaderno, quiz, strumenti) */
+  const h = {
+    view, go, onCleanup, getLessons, invalidate, saveLesson, newLesson, processLesson, goChat,
+    subjectOptions, subjectChip, lessonRow, copy,
+    currentSubject: () => Tools.currentSubject(),
+  };
+
+  return { init, processLesson, go, route, h };
 })();
 
 document.addEventListener('DOMContentLoaded', App.init);

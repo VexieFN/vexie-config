@@ -6,7 +6,7 @@
   "start_url": "./#/home",
   "scope": "./",
   "display": "standalone",
-  "orientation": "portrait",
+  "orientation": "any",
   "background_color": "#f6f7fb",
   "theme_color": "#3e63dd",
   "icons": [
@@ -17,6 +17,8 @@
   ],
   "shortcuts": [
     { "name": "Registra lezione", "url": "./#/record", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Quaderno", "url": "./#/notes", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Quiz", "url": "./#/quiz", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
     { "name": "Prof AI", "url": "./#/chat", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] }
   ]
 }

@@ -2,7 +2,7 @@
 
 **Ascolta la lezione, separa la spiegazione del prof dal casino della classe e crea in automatico schemi, riassunti, flashcard e quiz.** Funziona con l'AI di Google Gemini e la tua API key gratuita.
 
-È una web app installabile (PWA): va su telefono (Android/iPhone) e su PC, senza app store e senza server. Tutti i dati restano sul tuo dispositivo.
+È una web app installabile (PWA): va su **telefono, tablet (anche in orizzontale) e PC**, senza app store e senza server. Tutti i dati restano sul tuo dispositivo.
 
 ---
 
@@ -23,6 +23,13 @@
 | 📚 | **Materie** personalizzabili (nome, emoji, colore), materia riconosciuta in automatico, **ricerca** in tutte le lezioni |
 | 💬 | **Prof AI**: chat con Gemini, anche su una lezione o su **tutta una materia**; foto di esercizi e lavagna 📷, dettatura 🎤, formule matematiche, risposte salvabili negli appunti |
 | 📅 | **Agenda**: compiti e verifiche annunciati in classe finiscono **in agenda da soli**; export in calendario (.ics) |
+| 📄 | **Da PDF a schemi**: carichi un PDF (libro, dispensa, slide, appunti scansionati) e ottieni schema, riassunto, flashcard e quiz; puoi scegliere solo alcune pagine |
+| ❓ | **Centro Quiz**: quiz *rapidi* con le domande delle lezioni, quiz *nuovi creati dall'AI* (facile/media/difficile; scelta multipla, vero/falso, domande aperte corrette dall'AI con voto), **verifica a tempo**, storico dei voti, **ripasso degli errori** |
+| ✍️ | **Quaderno digitale**: pagine **scritte a mano** con penna/stilo o dito (sensibile alla pressione, evidenziatore, gomma, colori, annulla/ripeti, sfondo a righe/quadretti/puntini, **modalità solo penna** contro i segni del palmo) e **pagine di testo** formattate. L'AI **trasforma la tua scrittura in testo** e i tuoi appunti in schemi e quiz |
+| 📊 | **Voti e media**: registro voti per materia (anche 7+, 6-, 6½, 6/7), pesi, media generale, grafico e calcolatore **"che voto mi serve?"** |
+| 🗓️ | **Orario settimanale**: quando premi Registra, la materia dell'ora in corso viene scelta da sola |
+| ⏱️ | **Timer di studio** (metodo Pomodoro) con avviso a fine sessione e minuti studiati oggi |
+| 📱 | **Tablet e orizzontale**: menu laterale e layout a più colonne; registrazione con trascrizione a fianco |
 | 📁📷📝 | Schemi anche da **file audio**, **foto** (lavagna, libro, appunti) o **testo** |
 | 🔊 | Lettura ad alta voce di riassunti e risposte |
 | 💾 | Salvataggio automatico ogni 30 s (se il telefono si spegne recuperi la registrazione), backup e ripristino, tema chiaro/scuro, stampa/PDF |
@@ -59,6 +66,13 @@ Con il modello **Automatico** l'app sceglie da sola il miglior modello "Flash" d
 
 ---
 
+## ✍️ Scrivere a mano sul tablet
+
+- Con **Apple Pencil, S Pen o altre penne** la linea cambia spessore in base alla pressione
+- Appena l'app rileva una penna attiva **"Solo penna"**: con la penna scrivi, con il dito scorri la pagina (così il palmo non lascia segni). Puoi cambiarlo dalla barra degli strumenti
+- Lo strumento ✋ serve per scorrere la pagina anche senza penna
+- Menu ⋯ → **Trasforma la scrittura a mano in testo** oppure **Crea schemi, flashcard e quiz da questi appunti**
+
 ## 🎯 Consigli per i risultati migliori
 
 - Metti il telefono **sul banco, con il microfono verso la cattedra**, non in tasca o nello zaino
@@ -93,8 +107,12 @@ docs/
     ├── recorder.js       microfono, filtri voce, rilevamento rumore, trascrizione live
     ├── gemini.js         client della Gemini API (analisi della lezione, chat in streaming, upload file)
     ├── mindmap.js        mappa concettuale SVG interattiva + export
-    ├── components.js     flashcard, quiz, sintesi vocale
-    └── app.js            viste e logica dell'app
+    ├── components.js     flashcard, quiz (anche aperti e a tempo), sintesi vocale
+    ├── app.js            router, home, lezioni, registrazione, chat, agenda, impostazioni
+    ├── ink.js            motore di scrittura a mano (penna, evidenziatore, gomma)
+    ├── notes.js          quaderno digitale
+    ├── quiz.js           centro quiz e verifiche
+    └── tools.js          PDF → schemi, voti, orario, timer, menu strumenti
 ```
 
 **Browser consigliati:** Chrome o Edge (anche su Android) per tutte le funzioni. Safari va bene ma senza trascrizione dal vivo su alcune versioni; l'AI ascolta comunque l'audio registrato.

@@ -22,8 +22,24 @@
   <header class="topbar">
     <a href="#/home" class="brand"><span class="logo">🎓</span><span>Scuola<b>AI</b></span></a>
     <a href="#/record" id="rec-pill" class="rec-pill hidden" title="Torna alla registrazione">● <span>00:00</span></a>
+    <a href="#/timer" id="timer-pill" class="timer-pill hidden" title="Timer di studio">⏱️ <span>25:00</span></a>
     <a href="#/settings" class="icon-btn" aria-label="Impostazioni">⚙️</a>
   </header>
+
+  <nav class="sidenav" aria-label="Sezioni">
+    <a href="#/record" data-route="record" class="side-rec"><span>🎙️</span>Registra</a>
+    <a href="#/home" data-route="home"><span>🏠</span>Home</a>
+    <a href="#/lessons" data-route="lessons"><span>📚</span>Lezioni</a>
+    <a href="#/pdf" data-route="pdf"><span>📄</span>PDF</a>
+    <a href="#/quiz" data-route="quiz"><span>❓</span>Quiz</a>
+    <a href="#/notes" data-route="notes"><span>✍️</span>Quaderno</a>
+    <a href="#/chat" data-route="chat"><span>💬</span>Prof AI</a>
+    <a href="#/agenda" data-route="agenda"><span>📅</span>Agenda</a>
+    <a href="#/timetable" data-route="timetable"><span>🗓️</span>Orario</a>
+    <a href="#/grades" data-route="grades"><span>📊</span>Voti</a>
+    <a href="#/timer" data-route="timer"><span>⏱️</span>Timer</a>
+    <a href="#/settings" data-route="settings" class="side-bottom"><span>⚙️</span>Impostazioni</a>
+  </nav>
 
   <main id="view" class="container">
     <noscript><p>Per usare Scuola AI devi attivare JavaScript.</p></noscript>
@@ -33,8 +49,8 @@
     <a href="#/home" data-route="home"><span>🏠</span>Home</a>
     <a href="#/lessons" data-route="lessons"><span>📚</span>Lezioni</a>
     <a href="#/record" data-route="record" class="nav-rec" aria-label="Registra lezione"><span>🎙️</span></a>
-    <a href="#/chat" data-route="chat"><span>💬</span>Prof AI</a>
-    <a href="#/agenda" data-route="agenda"><span>📅</span>Agenda</a>
+    <a href="#/notes" data-route="notes"><span>✍️</span>Quaderno</a>
+    <a href="#/menu" data-route="menu"><span>🧰</span>Altro</a>
   </nav>
 
   <div id="print-area"></div>
@@ -46,5 +62,9 @@
   <script src="js/mindmap.js"></script>
   <script src="js/components.js"></script>
   <script src="js/app.js"></script>
+  <script src="js/ink.js"></script>
+  <script src="js/notes.js"></script>
+  <script src="js/quiz.js"></script>
+  <script src="js/tools.js"></script>
 </body>
 </html>

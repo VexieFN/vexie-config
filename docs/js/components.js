@@ -105,86 +105,185 @@ const UI = (() => {
     render();
   }
 
-  /* questions: [{question, options[], correct, explanation}] */
-  function quiz(el, questions) {
+  /* questions: [{type?: 'mc'|'vf'|'open', question, options[], correct, explanation, answer?, topic?}]
+     opts: { onFinish(result), timeLimit (secondi), grader(q, risposta) → {score, feedback}, title } */
+  function quiz(el, questions, opts = {}) {
     if (!questions.length) {
       el.innerHTML = '<div class="empty">Nessuna domanda disponibile.</div>';
-      return;
+      return { stop() {} };
     }
-    let order = shuffle(questions);
-    let i = 0;
-    let score = 0;
-    let wrong = [];
+    const { onFinish, timeLimit = 0, grader, shuffleQuestions = true } = opts;
+    let order;
+    let i;
+    let points;
+    let results;
+    let timer = 0;
+    let deadline = 0;
+    let finished = false;
+
+    function start() {
+      order = shuffleQuestions ? shuffle(questions) : questions.slice();
+      i = 0;
+      points = 0;
+      results = [];
+      finished = false;
+      clearInterval(timer);
+      if (timeLimit) {
+        deadline = Date.now() + timeLimit * 1000;
+        timer = setInterval(tick, 500);
+      }
+      render();
+    }
+
+    function tick() {
+      const left = Math.max(0, Math.round((deadline - Date.now()) / 1000));
+      const t = el.querySelector('.quiz-timer');
+      if (t) {
+        t.textContent = `⏱️ ${U.fmtDuration(left)}`;
+        t.classList.toggle('urgent', left <= 60);
+      }
+      if (!left && !finished) {
+        // tempo scaduto: le domande rimaste contano come sbagliate
+        for (let k = results.length; k < order.length; k++) results.push({ q: order[k], ok: false, given: '(tempo scaduto)', score: 0 });
+        U.toast('⏰ Tempo scaduto!', 'error');
+        finish();
+      }
+    }
+
+    function finish() {
+      finished = true;
+      clearInterval(timer);
+      const total = order.length;
+      const pct = Math.round((points / total) * 100);
+      const voto = Math.max(2, Math.round((points / total) * 10 * 2) / 2);
+      const wrong = results.filter((r) => !r.ok);
+      onFinish && onFinish({ total, points, pct, voto, results, wrong });
+      el.innerHTML = `
+        <div class="deck-end">
+          <div class="big-emoji">${pct >= 90 ? '🌟' : pct >= 60 ? '👍' : '📖'}</div>
+          <h3>${String(Math.round(points * 10) / 10).replace('.', ',')} / ${total} punti</h3>
+          <p>Voto indicativo: <b class="voto ${voto >= 6 ? 'ok' : 'ko'}">${String(voto).replace('.', ',')}</b></p>
+          ${
+            wrong.length
+              ? `<div class="wrong-list"><h4>Da rivedere (${wrong.length})</h4>${wrong
+                  .map(
+                    ({ q, given, feedback }) =>
+                      `<div class="wrong-item"><div class="md">${U.md(q.question)}</div>
+                       ${given ? `<div class="ko-answer">✗ ${U.esc(given)}</div>` : ''}
+                       <div class="ok-answer">✅ ${U.esc(q.type === 'open' ? q.answer || '' : q.options[q.correct] || '')}</div>
+                       ${feedback ? `<div class="muted md">${U.md(feedback)}</div>` : q.explanation ? `<div class="muted md">${U.md(q.explanation)}</div>` : ''}</div>`
+                  )
+                  .join('')}</div>`
+              : ''
+          }
+          <button class="btn btn-primary" data-act="again">🔁 Rifai il quiz</button>
+        </div>`;
+      U.renderMath(el);
+      el.querySelector('[data-act=again]').onclick = start;
+    }
+
+    function next() {
+      i++;
+      if (i >= order.length) finish();
+      else render();
+    }
+
+    function feedbackBox(cls, head, body = '') {
+      const fb = el.querySelector('.quiz-feedback');
+      fb.classList.remove('hidden');
+      fb.innerHTML = `<div class="${cls}">${head}</div>${body}<button class="btn btn-primary" data-act="next">${
+        i + 1 < order.length ? 'Avanti →' : 'Vedi risultato'
+      }</button>`;
+      U.renderMath(fb);
+      fb.querySelector('[data-act=next]').onclick = next;
+    }
 
     function render() {
-      if (i >= order.length) {
-        const pct = Math.round((score / order.length) * 100);
-        const voto = Math.max(2, Math.round((score / order.length) * 10 * 2) / 2);
-        el.innerHTML = `
-          <div class="deck-end">
-            <div class="big-emoji">${pct >= 90 ? '🌟' : pct >= 60 ? '👍' : '📖'}</div>
-            <h3>${score} / ${order.length} corrette</h3>
-            <p>Voto indicativo: <b>${String(voto).replace('.', ',')}</b></p>
-            ${
-              wrong.length
-                ? `<div class="wrong-list"><h4>Da rivedere</h4>${wrong
-                    .map(
-                      (q) =>
-                        `<div class="wrong-item"><div class="md">${U.md(q.question)}</div><div class="ok-answer">✅ ${U.esc(q.options[q.correct] || '')}</div>${q.explanation ? `<div class="muted md">${U.md(q.explanation)}</div>` : ''}</div>`
-                    )
-                    .join('')}</div>`
-                : ''
-            }
-            <button class="btn btn-primary" data-act="again">🔁 Rifai il quiz</button>
-          </div>`;
-        U.renderMath(el);
-        el.querySelector('[data-act=again]').onclick = () => {
-          order = shuffle(questions);
-          i = score = 0;
-          wrong = [];
-          render();
-        };
-        return;
-      }
       const q = order[i];
+      const isOpen = q.type === 'open';
       el.innerHTML = `
         <div class="quiz">
           <div class="deck-progress"><div style="width:${(i / order.length) * 100}%"></div></div>
-          <div class="deck-meta">Domanda ${i + 1} di ${order.length} · Punteggio ${score}</div>
+          <div class="deck-meta">Domanda ${i + 1} di ${order.length} · Punti ${String(Math.round(points * 10) / 10).replace('.', ',')}${
+            timeLimit ? ' · <span class="quiz-timer"></span>' : ''
+          }</div>
+          ${q.topic ? `<div class="quiz-topic">${U.esc(q.topic)}</div>` : ''}
           <div class="quiz-q md">${U.md(q.question)}</div>
-          <div class="quiz-opts">${q.options
-            .map((o, k) => `<button class="quiz-opt" data-k="${k}"><span class="quiz-letter">${'ABCDEF'[k] || k + 1}</span><span class="md">${U.md(o)}</span></button>`)
-            .join('')}</div>
+          ${
+            isOpen
+              ? `<textarea class="input quiz-open" rows="5" placeholder="Scrivi qui la tua risposta…"></textarea>
+                 <button class="btn btn-primary btn-block" data-act="grade">✅ Correggi la risposta</button>`
+              : `<div class="quiz-opts ${q.type === 'vf' ? 'vf' : ''}">${q.options
+                  .map(
+                    (o, k) =>
+                      `<button class="quiz-opt" data-k="${k}"><span class="quiz-letter">${q.type === 'vf' ? (k ? '✗' : '✓') : 'ABCDEF'[k] || k + 1}</span><span class="md">${U.md(o)}</span></button>`
+                  )
+                  .join('')}</div>`
+          }
           <div class="quiz-feedback hidden"></div>
         </div>`;
       U.renderMath(el);
-      const opts = el.querySelector('.quiz-opts');
-      opts.onclick = (e) => {
+      if (timeLimit) tick();
+
+      if (isOpen) {
+        const ta = el.querySelector('.quiz-open');
+        const btn = el.querySelector('[data-act=grade]');
+        btn.onclick = async () => {
+          const given = ta.value.trim();
+          btn.disabled = true;
+          ta.disabled = true;
+          let score = 0;
+          let feedback = '';
+          if (grader && given) {
+            btn.textContent = '⏳ Il prof AI sta correggendo…';
+            try {
+              ({ score, feedback } = await grader(q, given));
+            } catch (e) {
+              feedback = '⚠️ Correzione automatica non riuscita: ' + e.message;
+              score = 0;
+            }
+          } else if (!given) feedback = 'Nessuna risposta.';
+          if (finished || !el.isConnected) return;
+          btn.remove();
+          const ok = score >= 6;
+          points += score / 10;
+          results.push({ q, ok, given, score, feedback });
+          feedbackBox(
+            ok ? 'fb-ok' : score >= 5 ? 'fb-mid' : 'fb-ko',
+            `${ok ? '✅' : score >= 5 ? '🟡' : '❌'} Voto: ${String(score).replace('.', ',')}/10`,
+            `<div class="md">${U.md(feedback)}</div>${
+              q.answer ? `<details class="model-answer"><summary>Risposta modello</summary><div class="md">${U.md(q.answer)}</div></details>` : ''
+            }`
+          );
+        };
+        return;
+      }
+
+      const optsEl = el.querySelector('.quiz-opts');
+      optsEl.onclick = (e) => {
         const b = e.target.closest('[data-k]');
-        if (!b || opts.classList.contains('answered')) return;
-        opts.classList.add('answered');
+        if (!b || optsEl.classList.contains('answered')) return;
+        optsEl.classList.add('answered');
         const k = +b.dataset.k;
         const ok = k === q.correct;
-        if (ok) score++;
-        else wrong.push(q);
-        opts.querySelectorAll('.quiz-opt').forEach((x) => {
+        if (ok) points++;
+        results.push({ q, ok, given: q.options[k] });
+        optsEl.querySelectorAll('.quiz-opt').forEach((x) => {
           const kk = +x.dataset.k;
           if (kk === q.correct) x.classList.add('correct');
           else if (kk === k) x.classList.add('wrong');
         });
-        const fb = el.querySelector('.quiz-feedback');
-        fb.classList.remove('hidden');
-        fb.innerHTML = `<div class="${ok ? 'fb-ok' : 'fb-ko'}">${ok ? '✅ Esatto!' : '❌ Sbagliato'}</div>${
-          q.explanation ? `<div class="md">${U.md(q.explanation)}</div>` : ''
-        }<button class="btn btn-primary" data-act="next">${i + 1 < order.length ? 'Avanti →' : 'Vedi risultato'}</button>`;
-        U.renderMath(fb);
-        fb.querySelector('[data-act=next]').onclick = () => {
-          i++;
-          render();
-        };
+        feedbackBox(ok ? 'fb-ok' : 'fb-ko', ok ? '✅ Esatto!' : '❌ Sbagliato', q.explanation ? `<div class="md">${U.md(q.explanation)}</div>` : '');
       };
     }
-    render();
+
+    start();
+    return {
+      stop() {
+        finished = true;
+        clearInterval(timer);
+      },
+    };
   }
 
   /* ---------- Lettura ad alta voce (sintesi vocale del browser) ---------- */
