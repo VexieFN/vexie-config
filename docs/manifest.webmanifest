@@ -1,0 +1,22 @@
+{
+  "name": "Scuola AI – Ascolta la lezione e crea schemi",
+  "short_name": "Scuola AI",
+  "description": "Registra la lezione, filtra il casino della classe e crea schemi, riassunti, flashcard e quiz con Google Gemini.",
+  "lang": "it",
+  "start_url": "./#/home",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f6f7fb",
+  "theme_color": "#3e63dd",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ],
+  "shortcuts": [
+    { "name": "Registra lezione", "url": "./#/record", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Prof AI", "url": "./#/chat", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] }
+  ]
+}

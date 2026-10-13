@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3e63dd"/>
+      <stop offset="1" stop-color="#6e56cf"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#g)"/>
+  <!-- microfono -->
+  <rect x="206" y="104" width="100" height="176" rx="50" fill="#fff"/>
+  <path d="M160 236c0 53 43 96 96 96s96-43 96-96" fill="none" stroke="#fff" stroke-width="26" stroke-linecap="round"/>
+  <path d="M256 332v52" stroke="#fff" stroke-width="26" stroke-linecap="round"/>
+  <!-- schema -->
+  <circle cx="256" cy="414" r="22" fill="#ffd60a"/>
+  <circle cx="166" cy="430" r="15" fill="#fff" opacity=".9"/>
+  <circle cx="346" cy="430" r="15" fill="#fff" opacity=".9"/>
+  <path d="M181 428l53-10M331 428l-53-10" stroke="#fff" stroke-width="8" stroke-linecap="round" opacity=".9"/>
+  <!-- scintille AI -->
+  <path d="M378 120l10 26 26 10-26 10-10 26-10-26-26-10 26-10z" fill="#ffd60a"/>
+  <path d="M130 150l6 15 15 6-15 6-6 15-6-15-15-6 15-6z" fill="#fff" opacity=".85"/>
+</svg>

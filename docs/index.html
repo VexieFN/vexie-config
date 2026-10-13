@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="it" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f6f7fb">
+  <meta name="description" content="Registra la lezione, filtra il casino della classe e crea schemi, riassunti, flashcard e quiz con l'AI di Google Gemini.">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Scuola AI">
+  <title>Scuola AI</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="css/style.css">
+  <!-- KaTeX per le formule matematiche (facoltativo: se offline l'app funziona lo stesso) -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/contrib/auto-render.min.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a href="#/home" class="brand"><span class="logo">🎓</span><span>Scuola<b>AI</b></span></a>
+    <a href="#/record" id="rec-pill" class="rec-pill hidden" title="Torna alla registrazione">● <span>00:00</span></a>
+    <a href="#/settings" class="icon-btn" aria-label="Impostazioni">⚙️</a>
+  </header>
+
+  <main id="view" class="container">
+    <noscript><p>Per usare Scuola AI devi attivare JavaScript.</p></noscript>
+  </main>
+
+  <nav class="bottomnav" aria-label="Navigazione">
+    <a href="#/home" data-route="home"><span>🏠</span>Home</a>
+    <a href="#/lessons" data-route="lessons"><span>📚</span>Lezioni</a>
+    <a href="#/record" data-route="record" class="nav-rec" aria-label="Registra lezione"><span>🎙️</span></a>
+    <a href="#/chat" data-route="chat"><span>💬</span>Prof AI</a>
+    <a href="#/agenda" data-route="agenda"><span>📅</span>Agenda</a>
+  </nav>
+
+  <div id="print-area"></div>
+
+  <script src="js/util.js"></script>
+  <script src="js/store.js"></script>
+  <script src="js/gemini.js"></script>
+  <script src="js/recorder.js"></script>
+  <script src="js/mindmap.js"></script>
+  <script src="js/components.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
