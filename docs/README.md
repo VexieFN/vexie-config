@@ -23,7 +23,7 @@
 | 📚 | **Materie** personalizzabili (nome, emoji, colore), materia riconosciuta in automatico, **ricerca** in tutte le lezioni |
 | 💬 | **Prof AI**: chat con Gemini, anche su una lezione o su **tutta una materia**; foto di esercizi e lavagna 📷, dettatura 🎤, formule matematiche, risposte salvabili negli appunti |
 | 📅 | **Agenda**: compiti e verifiche annunciati in classe finiscono **in agenda da soli**; export in calendario (.ics) |
-| 📄 | **Da PDF a schemi**: carichi un PDF (libro, dispensa, slide, appunti scansionati) e ottieni schema, riassunto, flashcard e quiz; puoi scegliere solo alcune pagine |
+| 📄 | **Da PDF a schemi**: scegli uno o più PDF (libro, dispensa, slide, appunti scansionati) e l'app li aggiunge subito e crea schema, riassunto, flashcard e quiz; puoi indicare solo alcune pagine |
 | ❓ | **Centro Quiz**: quiz *rapidi* con le domande delle lezioni, quiz *nuovi creati dall'AI* (facile/media/difficile; scelta multipla, vero/falso, domande aperte corrette dall'AI con voto), **verifica a tempo**, storico dei voti, **ripasso degli errori** |
 | ✍️ | **Quaderno digitale**: pagine **scritte a mano** con penna/stilo o dito (sensibile alla pressione, evidenziatore, gomma, colori, annulla/ripeti, sfondo a righe/quadretti/puntini, **modalità solo penna** contro i segni del palmo) e **pagine di testo** formattate. L'AI **trasforma la tua scrittura in testo** e i tuoi appunti in schemi e quiz |
 | 📊 | **Voti e media**: registro voti per materia (anche 7+, 6-, 6½, 6/7), pesi, media generale, grafico e calcolatore **"che voto mi serve?"** |

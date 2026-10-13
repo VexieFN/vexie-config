@@ -2595,6 +2595,21 @@ details.field summary {
   border-color: var(--accent);
   background: var(--accent-soft);
 }
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.pdf-error {
+  background: var(--danger-soft) !important;
+  color: var(--danger);
+}
+.pdf-ok {
+  background: var(--success-soft) !important;
+}
 .pdf-chosen {
   margin: 0 0 12px;
   padding: 10px 12px;

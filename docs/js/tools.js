@@ -464,45 +464,120 @@ const Tools = (() => {
   }
 
   /* ======================= PDF → SCHEMI ======================= */
+  // Riconosce un PDF anche quando Android non dà né il tipo né l'estensione (Drive, WhatsApp, gestori file…)
+  async function isPdf(f) {
+    if (f.type === 'application/pdf' || /\.pdf$/i.test(f.name)) return true;
+    try {
+      const head = new Uint8Array(await f.slice(0, 1024).arrayBuffer());
+      const txt = String.fromCharCode(...head);
+      return txt.includes('%PDF');
+    } catch (e) {
+      return false;
+    }
+  }
+
   async function pdf() {
     const lessons = (await H().getLessons()).filter((l) => l.source === 'pdf');
     H().view().innerHTML = `
       <h1 class="page-title">📄 Da PDF a schemi</h1>
       <div class="pdf-layout">
         <div class="card">
-          <label class="dropzone" id="pdf-drop">
-            <input type="file" id="pdf-file" accept="application/pdf,.pdf" hidden>
-            <span class="big-emoji">📄</span>
-            <b>Trascina qui un PDF o tocca per sceglierlo</b>
-            <small class="muted">Libro, dispensa, slide del prof, appunti scansionati · max 50 MB</small>
-          </label>
-          <div id="pdf-chosen" class="pdf-chosen hidden"></div>
           <div class="grid-2">
             <label class="field"><span>Materia</span><select class="input" id="pdf-subj">${H().subjectOptions('', { auto: true })}</select></label>
             <label class="field"><span>Pagine <small class="muted">(facoltativo)</small></span><input class="input" id="pdf-pages" placeholder="Es. 12-30"></label>
           </div>
-          <label class="field"><span>Titolo <small class="muted">(facoltativo)</small></span><input class="input" id="pdf-title" placeholder="Lo trova l'AI"></label>
-          <button class="btn btn-primary btn-xl" id="pdf-go" disabled>✨ Crea schemi dal PDF</button>
-          <p class="hint">L'AI legge il PDF (anche immagini, tabelle e formule) e crea schema, riassunto, concetti, flashcard e quiz. Per libri interi indica le pagine del capitolo che ti serve.</p>
+          <div class="dropzone" id="pdf-drop" role="button" tabindex="0">
+            <span class="big-emoji">📄</span>
+            <b>Tocca qui per scegliere un PDF</b>
+            <small class="muted">oppure trascinalo qui · libro, dispensa, slide, appunti scansionati · max 50 MB · anche più file insieme</small>
+          </div>
+          <input type="file" id="pdf-file" accept="application/pdf,.pdf" multiple class="visually-hidden">
+          <div id="pdf-msg" class="pdf-chosen hidden"></div>
+          <p class="hint">Appena scegli il file viene aggiunto all'app e l'AI crea schema, riassunto, concetti, flashcard e quiz. Per libri interi indica prima le pagine del capitolo che ti serve.</p>
         </div>
         <section>
           <h2>📚 I tuoi PDF</h2>
-          <div class="list">${lessons.length ? lessons.map(H().lessonRow).join('') : '<div class="empty"><p>Nessun PDF ancora.</p></div>'}</div>
+          <div class="list" id="pdf-list">${lessons.length ? lessons.map(H().lessonRow).join('') : '<div class="empty"><p>Nessun PDF ancora.</p></div>'}</div>
         </section>
       </div>`;
-    let file = null;
-    const choose = (f) => {
-      if (!f) return;
-      if (f.type !== 'application/pdf' && !/\.pdf$/i.test(f.name)) return U.toast('Scegli un file PDF', 'error');
-      if (f.size > 48 * 1024 * 1024) return U.toast('PDF troppo grande (max 50 MB)', 'error');
-      file = f;
-      $('#pdf-chosen').classList.remove('hidden');
-      $('#pdf-chosen').innerHTML = `📄 <b>${esc(f.name)}</b> <span class="muted">${(f.size / 1048576).toFixed(1)} MB</span>`;
-      $('#pdf-go').disabled = false;
-      if (!$('#pdf-title').value) $('#pdf-title').placeholder = f.name.replace(/\.pdf$/i, '');
-    };
-    $('#pdf-file').onchange = (e) => choose(e.target.files[0]);
+
+    const input = $('#pdf-file');
     const drop = $('#pdf-drop');
+    const msg = (html, type = 'info') => {
+      const el = $('#pdf-msg');
+      if (!el) return;
+      el.className = `pdf-chosen pdf-${type}`;
+      el.innerHTML = html;
+    };
+    const refreshList = async () => {
+      H().invalidate();
+      const list = $('#pdf-list');
+      if (!list) return;
+      const ls = (await H().getLessons()).filter((l) => l.source === 'pdf');
+      list.innerHTML = ls.map(H().lessonRow).join('');
+    };
+
+    async function addFiles(files) {
+      files = [...(files || [])];
+      if (!files.length) return;
+      const ok = [];
+      const skipped = [];
+      for (const f of files) {
+        if (!(await isPdf(f))) skipped.push(`${f.name || 'file'}: non è un PDF`);
+        else if (f.size > 48 * 1024 * 1024) skipped.push(`${f.name}: troppo grande (max 50 MB)`);
+        else if (!f.size) skipped.push(`${f.name || 'file'}: il file è vuoto o non è stato scaricato sul tablet`);
+        else ok.push(f);
+      }
+      if (!ok.length) {
+        msg(`⚠️ ${skipped.map(esc).join('<br>⚠️ ')}`, 'error');
+        return;
+      }
+      msg(`⏳ Aggiungo ${U.plural(ok.length, 'PDF', 'PDF')}…`);
+      const created = [];
+      try {
+        for (const f of ok) {
+          const name = f.name && f.name !== 'blob' ? f.name : 'documento.pdf';
+          const l = H().newLesson({
+            source: 'pdf',
+            subjectId: $('#pdf-subj').value,
+            title: '',
+            fileName: name,
+            pages: $('#pdf-pages').value.trim(),
+            hasPdf: true,
+          });
+          // copia i dati nel database dell'app (così il PDF resta anche se il file originale viene spostato)
+          const data = new Blob([await f.arrayBuffer()], { type: 'application/pdf' });
+          await Store.files.put(l.id, data);
+          await H().saveLesson(l);
+          created.push(l);
+        }
+      } catch (e) {
+        console.error(e);
+        msg(`⚠️ Non riesco a salvare il PDF: ${esc(e.message || e)}`, 'error');
+        return;
+      }
+      input.value = '';
+      await refreshList();
+      const extra = skipped.length ? `<br><small>Saltati: ${skipped.map(esc).join(', ')}</small>` : '';
+      if (!Store.settings().apiKey) {
+        msg(`✅ ${U.plural(created.length, 'PDF aggiunto', 'PDF aggiunti')}. Per creare gli schemi inserisci la API key in <a href="#/settings">Impostazioni</a>.${extra}`, 'ok');
+        return;
+      }
+      if (created.length === 1) {
+        H().go(`#/lesson/${created[0].id}?process=1`);
+        return;
+      }
+      // più file: li elaboro uno alla volta per non superare i limiti della API gratuita
+      msg(`✅ ${created.length} PDF aggiunti: l'AI li elabora uno alla volta, li vedi qui accanto.${extra}`, 'ok');
+      for (const l of created) {
+        await H().processLesson(l.id);
+        await refreshList();
+      }
+    }
+
+    drop.onclick = () => input.click();
+    drop.onkeydown = (e) => (e.key === 'Enter' || e.key === ' ') && input.click();
+    input.onchange = (e) => addFiles(e.target.files);
     ['dragenter', 'dragover'].forEach((ev) =>
       drop.addEventListener(ev, (e) => {
         e.preventDefault();
@@ -512,23 +587,8 @@ const Tools = (() => {
     ['dragleave', 'drop'].forEach((ev) => drop.addEventListener(ev, () => drop.classList.remove('over')));
     drop.addEventListener('drop', (e) => {
       e.preventDefault();
-      choose(e.dataTransfer.files[0]);
+      addFiles(e.dataTransfer.files);
     });
-    $('#pdf-go').onclick = async () => {
-      if (!file) return;
-      const pages = $('#pdf-pages').value.trim();
-      const l = H().newLesson({
-        source: 'pdf',
-        subjectId: $('#pdf-subj').value,
-        title: $('#pdf-title').value.trim(),
-        fileName: file.name,
-        pages,
-        hasPdf: true,
-      });
-      await Store.files.put(l.id, file.type ? file : new Blob([file], { type: 'application/pdf' }));
-      await H().saveLesson(l);
-      H().go(`#/lesson/${l.id}?process=1`);
-    };
   }
 
   /* ======================= MENU "ALTRO" ======================= */

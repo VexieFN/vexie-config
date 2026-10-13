@@ -1,5 +1,5 @@
 /* Service worker: rende l'app installabile e utilizzabile anche offline (tranne le funzioni AI). */
-const CACHE = 'scuola-ai-v3';
+const CACHE = 'scuola-ai-v4';
 const SHELL = [
   './',
   'index.html',

@@ -21,7 +21,17 @@ const Store = (() => {
           if (!d.objectStoreNames.contains('notes')) d.createObjectStore('notes', { keyPath: 'id' });
           if (!d.objectStoreNames.contains('files')) d.createObjectStore('files');
         };
-        req.onsuccess = () => resolve(req.result);
+        req.onsuccess = () => {
+          const d = req.result;
+          // se una versione più nuova dell'app viene aperta altrove, chiudi la connessione per non bloccarla
+          d.onversionchange = () => {
+            d.close();
+            dbPromise = null;
+          };
+          resolve(d);
+        };
+        req.onblocked = () =>
+          U.toast('Aggiornamento in corso: chiudi le altre finestre o schede di Scuola AI e riapri l\'app', 'error', 8000);
         req.onerror = () => reject(req.error);
       });
     }
