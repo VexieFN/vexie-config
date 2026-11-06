@@ -16,8 +16,9 @@ def norm(s):
 
 
 class Scanner:
-    def __init__(self, st, db, bus, src, notifier=None):
+    def __init__(self, st, db, bus, src, ctl=None):
         self.st, self.db, self.bus, self.src = st, db, bus, src
+        self.ctl = ctl
         self.room = {}   # mint -> dict
         self.sent = set()
         self.runners = set()  # normalized names that ran today
@@ -113,17 +114,29 @@ class Scanner:
         if verdict == "pass":
             self.bus.auditor.put_nowait(out)
 
+    def on(self):
+        return self.ctl is None or self.ctl.active
+
     # ---- loops
     async def ws_loop(self):
         import websockets
         backoff = 1
         while True:
+            if not self.on():
+                await asyncio.sleep(2)
+                continue
             try:
                 async with websockets.connect(WS) as ws:
                     await ws.send(json.dumps({"method": "subscribeMigration"}))
-                    backoff = 1
-                    while True:
-                        raw = await asyncio.wait_for(ws.recv(), timeout=120)
+                    backoff, last = 1, time.time()
+                    while self.on():
+                        try:
+                            raw = await asyncio.wait_for(ws.recv(), timeout=5)
+                        except asyncio.TimeoutError:
+                            if time.time() - last > 120:
+                                raise
+                            continue
+                        last = time.time()
                         self.db.beat("scanner")
                         try:
                             await self.on_migration(json.loads(raw))
@@ -138,7 +151,10 @@ class Scanner:
     async def poll_loop(self):
         while True:
             try:
-                await self.tick()
+                if self.on():
+                    await self.tick()
+                else:
+                    self.room.clear()   # OFF means no new signals at all
             except RateLimited:
                 await asyncio.sleep(30)
             except Exception:

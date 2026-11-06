@@ -14,3 +14,10 @@ Optional env: `TYPESAFE_API_KEY` (Jev mode), `DESK_DB` (sqlite path).
 Done: core agents, settings with ranges, fee model, links, notifier (Telegram/console), tests.
 Todo: Telegram commands, iPhone web app + API, morning report, data recorder + backtest,
 `fields.py` is UNVERIFIED until real API samples are captured.
+
+## Uso su iPhone (manuale, mai automatico)
+Il desk parte sempre SPENTO. Lo accendi/spegni da:
+- app web: apri `https://TUO-HOST/#t=APP_TOKEN` in Safari → Condividi → Aggiungi a Home. Bottone AVVIA/FERMA.
+- Telegram: `/on`, `/off`, `/status`, `stop -8`, `stack 8`, `paper`, `LIVE`.
+Fermando, nessun nuovo segnale; le posizioni aperte restano sorvegliate da Risk (stop/trail/timeout).
+Env: `APP_TOKEN` (lungo e casuale), `TG_TOKEN`, `PORT`. Il processo deve restare acceso su un host (anche solo il processo: il *cercare* è manuale).

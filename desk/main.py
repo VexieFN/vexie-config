@@ -13,6 +13,9 @@ from config import Settings
 from db import DB
 from notifier import Notifier
 from sources import Sources
+from control import Control
+from telegram import Telegram
+from api import make_app
 
 
 async def amain():
@@ -26,9 +29,25 @@ async def amain():
     n = Notifier(os.environ.get("TG_TOKEN"), os.environ.get("TG_CHAT_ID"))
     if st["desk.mode"] == "PAPER" and st["executor.below_min"] == "skip" and st.min_stack() > st["desk.paper_start_stack"]:
         await n.push(f"Every coin will be skipped: stack under ${st.min_stack():.2f}. Switch to bump or raise the stack.")
-    agents = [Scanner(st, db, bus, src), Auditor(st, db, bus, src), Analyst(st, db, bus, src),
-              Executor(st, db, bus, src, n), Risk(st, db, bus, src, n)]
-    await asyncio.gather(*(a.run() for a in agents))
+    ctl = Control(db)                       # always boots OFF
+    ex = Executor(st, db, bus, src, n)
+    agents = [Scanner(st, db, bus, src, ctl), Auditor(st, db, bus, src), Analyst(st, db, bus, src), ex,
+              Risk(st, db, bus, src, n)]
+    tasks = [a.run() for a in agents]
+    if os.environ.get("TG_TOKEN"):
+        n.chat_id = n.chat_id or db.kv_get("owner_chat_id")
+        tg = Telegram(os.environ["TG_TOKEN"], db, st, ctl, n, ex)
+        tasks.append(tg.run())
+    token = os.environ.get("APP_TOKEN")
+    if token:
+        import uvicorn
+        app = make_app(db, st, ctl, token, ex)
+        cfg = uvicorn.Config(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), log_level="warning")
+        tasks.append(uvicorn.Server(cfg).serve())
+    else:
+        logging.warning("APP_TOKEN not set: iPhone app disabled")
+    logging.info("Desk ready. OFF until you send /on or tap AVVIA.")
+    await asyncio.gather(*tasks)
 
 
 if __name__ == "__main__":
