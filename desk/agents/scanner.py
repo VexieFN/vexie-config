@@ -1,0 +1,150 @@
+import asyncio
+import json
+import logging
+import re
+import time
+
+import fields
+from sources import RateLimited, top_holders
+
+log = logging.getLogger("scanner")
+WS = "wss://pumpportal.fun/api/data"
+
+
+def norm(s):
+    return re.sub(r"[^a-z]", "", (s or "").lower())
+
+
+class Scanner:
+    def __init__(self, st, db, bus, src, notifier=None):
+        self.st, self.db, self.bus, self.src = st, db, bus, src
+        self.room = {}   # mint -> dict
+        self.sent = set()
+        self.runners = set()  # normalized names that ran today
+        self.reconnects = 0
+
+    # ---- intake
+    async def on_migration(self, msg):
+        m = fields.migration(msg)
+        mint = m["mint"]
+        if not mint or mint in self.room or mint in self.sent:
+            return
+        creator = m["creator"]
+        bal = None
+        if creator is None:
+            try:
+                creator = fields.rug_creator(await self.src.rugcheck(mint))
+            except Exception as e:  # noqa
+                log.warning("creator lookup failed %s", e)
+        if creator:
+            try:
+                bal = await self.src.owner_balance(creator, mint)
+            except Exception:
+                bal = None
+        now = time.time()
+        self.room[mint] = {**m, "creator": creator, "migrated_at": now}
+        self.db.x("INSERT OR REPLACE INTO coins(mint,name,symbol,pool,migrated_at,creator,creator_balance_at_migration)"
+                  " VALUES(?,?,?,?,?,?,?)", (mint, m["name"], m["symbol"], m["pool"], now, creator, bal))
+
+    # ---- evaluation (pure given pair + holders)
+    def judge(self, mint, room, p, top10, now):
+        s = self.st
+        age = (now - room["migrated_at"]) / 60
+        liq = p.get("liq")
+        if liq is not None and liq < s["scanner.min_liquidity_usd"]:
+            return "kill", f"liq ${liq/1000:.1f}K", age
+        if top10 is not None and top10 > s["scanner.max_top10_pct"]:
+            return "kill", f"top 10 hold {top10:.0f}%", age
+        ch = p.get("ch_h1")
+        if ch is not None and ch > s["scanner.max_h1_change_pct"]:
+            return "kill", f"+{ch:.0f}% in 1h", age
+        n = norm(p.get("name")) or norm(p.get("symbol"))
+        if n and any(r and (r == n or r in n or n in r) for r in self.runners):
+            return "kill", "copycat of runner", age
+        if age >= s["scanner.min_pool_age_min"] and liq is not None:
+            return "pass", None, age
+        return "wait", None, age
+
+    async def tick(self):
+        if not self.room:
+            return
+        s = self.st
+        now = time.time()
+        pairs = await self.src.dex_pairs(list(self.room))
+        for mint, room in list(self.room.items()):
+            p = pairs.get(mint)
+            if p and p["price"]:
+                self.db.price(mint, p["price"], p["vol_m5"], p["liq"])
+                if (p.get("ch_h24") or 0) >= s["scanner.runner_h24_pct"]:
+                    self.runners.add(norm(p.get("name")))
+            age = (now - room["migrated_at"]) / 60
+            if not p:
+                if age > s["scanner.max_wait_min"]:
+                    self._finish(mint, room, "kill", "never qualified", {}, None, age)
+                continue
+            top10 = None
+            try:
+                supply, hold = await top_holders(self.src, mint, {room.get("pool")})
+                if supply:
+                    top10 = 100 * sum(a for _, a in hold[:10]) / supply
+            except Exception as e:  # noqa
+                log.warning("top10 failed %s", e)
+            verdict, reason, age = self.judge(mint, room, p, top10, now)
+            if verdict == "wait":
+                if age > s["scanner.max_wait_min"]:
+                    self._finish(mint, room, "kill", "never qualified", p, top10, age)
+                continue
+            self._finish(mint, room, verdict, reason, p, top10, age)
+
+    def _finish(self, mint, room, verdict, reason, p, top10, age):
+        self.room.pop(mint, None)
+        self.sent.add(mint)
+        out = {"agent": "scanner", "mint": mint, "name": p.get("name") or room.get("name"),
+               "symbol": p.get("symbol") or room.get("symbol"), "pool": room.get("pool"),
+               "liquidityUsd": p.get("liq"), "top10Pct": top10, "h1ChangePct": p.get("ch_h1"),
+               "ageMin": int(age), "verdict": verdict, "reason": reason, "ts": time.time()}
+        self.db.x("INSERT INTO scans(mint,ts,liquidity_usd,top10_pct,h1_change_pct,age_min,verdict,reason)"
+                  " VALUES(?,?,?,?,?,?,?,?)",
+                  (mint, out["ts"], out["liquidityUsd"], top10, out["h1ChangePct"], age, verdict, reason))
+        if p.get("name"):
+            self.db.x("UPDATE coins SET name=?, symbol=? WHERE mint=?", (out["name"], out["symbol"], mint))
+        log.info("%s %s %s", mint, verdict, reason)
+        self.bus.emit("scan", out)
+        if verdict == "pass":
+            self.bus.auditor.put_nowait(out)
+
+    # ---- loops
+    async def ws_loop(self):
+        import websockets
+        backoff = 1
+        while True:
+            try:
+                async with websockets.connect(WS) as ws:
+                    await ws.send(json.dumps({"method": "subscribeMigration"}))
+                    backoff = 1
+                    while True:
+                        raw = await asyncio.wait_for(ws.recv(), timeout=120)
+                        self.db.beat("scanner")
+                        try:
+                            await self.on_migration(json.loads(raw))
+                        except Exception:
+                            log.exception("bad migration msg")
+            except Exception as e:
+                self.reconnects += 1
+                log.warning("ws closed (%s), retry in %ss", e, backoff)
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, 60)
+
+    async def poll_loop(self):
+        while True:
+            try:
+                await self.tick()
+            except RateLimited:
+                await asyncio.sleep(30)
+            except Exception:
+                log.exception("scanner tick")
+            self.db.beat("scanner")
+            await asyncio.sleep(self.st["scanner.poll_s"])
+
+    async def run(self):
+        await asyncio.gather(self.ws_loop(), self.poll_loop())
