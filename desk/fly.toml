@@ -1,0 +1,35 @@
+# Fly.io config. Change `app` to a unique name before `fly launch`.
+app = "desk-CHANGE-ME"
+primary_region = "fra"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "8080"
+  DESK_DB = "/data/desk.sqlite"
+
+# SQLite lives on a persistent volume, otherwise every deploy wipes the history
+[[mounts]]
+  source = "desk_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # MUST stay on: Telegram polling and Risk guarding open positions need the process alive.
+  # The desk itself still boots OFF and only hunts when you press AVVIA or send /on.
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    method = "GET"
+    path = "/healthz"
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "20s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

@@ -95,6 +95,10 @@ def make_app(db, st, ctl, token, executor=None):
         db.x("UPDATE positions SET status='closed' WHERE id=? AND status='exiting'", (pid,))
         return {"ok": True}
 
+    @app.get("/healthz")
+    def healthz():
+        return {"ok": True}
+
     @app.get("/")
     def index():
         return FileResponse(os.path.join(WEB, "index.html"))

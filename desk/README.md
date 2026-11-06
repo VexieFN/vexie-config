@@ -21,3 +21,14 @@ Il desk parte sempre SPENTO. Lo accendi/spegni da:
 - Telegram: `/on`, `/off`, `/status`, `stop -8`, `stack 8`, `paper`, `LIVE`.
 Fermando, nessun nuovo segnale; le posizioni aperte restano sorvegliate da Risk (stop/trail/timeout).
 Env: `APP_TOKEN` (lungo e casuale), `TG_TOKEN`, `PORT`. Il processo deve restare acceso su un host (anche solo il processo: il *cercare* è manuale).
+
+## Deploy su Fly.io
+```bash
+cd desk
+fly launch --no-deploy --copy-config      # scegli un nome app unico
+fly volumes create desk_data --size 1 --region fra
+fly secrets set APP_TOKEN=$(openssl rand -hex 32) TG_TOKEN=xxx
+fly deploy
+```
+App: `https://<nome>.fly.dev/#t=<APP_TOKEN>` in Safari → Condividi → Aggiungi alla schermata Home.
+Il token: `fly ssh console -C "printenv APP_TOKEN"`.
