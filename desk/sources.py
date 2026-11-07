@@ -30,7 +30,11 @@ class Sources:
         return out
 
     async def rpc(self, method, params):
-        r = await self.http.post(self.rpc_url, json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
+        for wait in (1, 2, 4, 0):  # public RPC rate-limits hard: back off on 429
+            r = await self.http.post(self.rpc_url, json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
+            if r.status_code != 429 or not wait:
+                break
+            await asyncio.sleep(wait)
         r.raise_for_status()
         j = r.json()
         if "error" in j:
@@ -99,17 +103,13 @@ class RateLimited(Exception):
     pass
 
 
-async def top_holders(src, mint, exclude_owners):
-    """-> (supply, [(owner, ui_amount)]) top 20 token accounts with owner resolved, exclusions removed."""
-    info = await src.mint_info(mint)
-    supply = float(info["supply"]) / (10 ** int(info["decimals"]))
-    big = await src.largest(mint)
-    addrs = [b["address"] for b in big]
-    res = await src.rpc("getMultipleAccounts", [addrs, {"encoding": "jsonParsed"}])
-    out = []
-    for b, acc in zip(big, res["value"]):
-        owner = (((acc or {}).get("data") or {}).get("parsed") or {}).get("info", {}).get("owner")
-        if owner in exclude_owners:
+def top10_pct(accounts, supply_raw, exclude_owners=()):
+    """accounts: [(owner, delegate, raw_amount)] from token_accounts(). Sum per owner, drop pool/curve owners."""
+    if not supply_raw:
+        return None
+    per = {}
+    for owner, _, amt in accounts:
+        if owner in exclude_owners or not amt:
             continue
-        out.append((owner, float(b.get("uiAmount") or 0)))
-    return supply, out
+        per[owner] = per.get(owner, 0) + amt
+    return 100 * sum(sorted(per.values(), reverse=True)[:10]) / supply_raw

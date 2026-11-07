@@ -13,8 +13,15 @@ def _g(d, *path):
     return d
 
 
+def is_address(v):
+    return isinstance(v, str) and 32 <= len(v) <= 44 and v.isalnum()
+
+
 def migration(msg):
-    return {"mint": _g(msg, "mint"), "pool": _g(msg, "pool"), "signature": _g(msg, "signature"),
+    # PumpPortal's "pool" may be a DEX label (e.g. "pump-amm"), not an address: keep it only if it is one.
+    # The real pool address comes from DexScreener's pairAddress (Scanner sets it).
+    pool = _g(msg, "pool")
+    return {"mint": _g(msg, "mint"), "pool": pool if is_address(pool) else None, "signature": _g(msg, "signature"),
             "creator": _g(msg, "creator") or _g(msg, "traderPublicKey"),
             "name": _g(msg, "name"), "symbol": _g(msg, "symbol")}
 
@@ -47,6 +54,8 @@ def rug_creator(report):
 
 
 def rug_lp_locked_pct(report, pool):
+    if not pool:
+        return None
     for m in _g(report, "markets") or []:
         if _g(m, "pubkey") == pool or _g(m, "address") == pool:
             v = _g(m, "lp", "lpLockedPct")
@@ -54,14 +63,58 @@ def rug_lp_locked_pct(report, pool):
     return None
 
 
-def graph_edges(graph):
-    """-> (set of wallets, list of (a,b)) or (None, None) if no edge key."""
-    if not isinstance(graph, dict):
-        return None, None
-    nodes = graph.get("nodes")
-    edges = graph.get("links", graph.get("edges"))
-    if edges is None or nodes is None:
-        return None, None
-    ids = {n.get("id") if isinstance(n, dict) else n for n in nodes}
-    pairs = [(e.get("source"), e.get("target")) for e in edges if isinstance(e, dict)]
-    return ids, pairs
+def _components(nodes, edges, holders):
+    from collections import defaultdict
+    keep = (lambda n: n in holders) if holders else (lambda n: True)
+    adj = defaultdict(set)
+    for a, b in edges:
+        if keep(a) and keep(b):
+            adj[a].add(b); adj[b].add(a)
+    seen, best = set(), 0
+    for n in nodes:
+        if n in seen or not keep(n):
+            continue
+        stack, size = [n], 0
+        seen.add(n)
+        while stack:
+            x = stack.pop(); size += 1
+            for y in adj[x]:
+                if y not in seen:
+                    seen.add(y); stack.append(y)
+        best = max(best, size)
+    return best
+
+
+def _node_id(n):
+    return n.get("id") or n.get("address") or n.get("pubkey") if isinstance(n, dict) else n
+
+
+def _edge(e):
+    if isinstance(e, dict):
+        return _node_id(e.get("source")), _node_id(e.get("target"))
+    if isinstance(e, (list, tuple)) and len(e) == 2:
+        return e[0], e[1]
+    return None, None
+
+
+def bundled_size(graph, holders=None):
+    """Size of the biggest funded-together group of holders. RugCheck's insiders/graph is a LIST of networks
+    ([] = none found). Each network: nodes+links (connected components) or a size field.
+    -> int, or None when the shape is not recognised (Auditor treats None as red, never as a pass)."""
+    if isinstance(graph, dict):
+        graph = [graph]
+    if not isinstance(graph, list):
+        return None
+    best = 0
+    for net in graph:
+        if not isinstance(net, dict):
+            return None
+        nodes, links = net.get("nodes"), net.get("links", net.get("edges"))
+        if isinstance(nodes, list) and isinstance(links, list):
+            ids = [_node_id(n) for n in nodes]
+            best = max(best, _components(ids, [_edge(e) for e in links], holders))
+        elif isinstance(net.get("size"), int):
+            best = max(best, net["size"])
+        else:
+            return None
+    return best

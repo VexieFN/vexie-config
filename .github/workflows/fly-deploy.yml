@@ -19,6 +19,7 @@ jobs:
       FLY_APP: ${{ vars.FLY_APP }}
       APP_TOKEN: ${{ secrets.APP_TOKEN }}
       TG_TOKEN: ${{ secrets.TG_TOKEN }}
+      RPC_URL: ${{ secrets.RPC_URL }}
     steps:
       - uses: actions/checkout@v5
 
@@ -80,6 +81,7 @@ jobs:
         run: |
           flyctl secrets set --stage -a "$FLY_APP" APP_TOKEN="$APP_TOKEN"
           if [ -n "$TG_TOKEN" ]; then flyctl secrets set --stage -a "$FLY_APP" TG_TOKEN="$TG_TOKEN"; fi
+          if [ -n "$RPC_URL" ]; then flyctl secrets set --stage -a "$FLY_APP" RPC_URL="$RPC_URL"; fi
 
       - name: Deploy
         if: steps.cfg.outputs.go == 'yes'

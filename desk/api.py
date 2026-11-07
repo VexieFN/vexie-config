@@ -16,7 +16,7 @@ from config import DEFAULTS, SettingsError
 WEB = os.path.join(os.path.dirname(__file__), "web")
 
 
-def make_app(db, st, ctl, token, executor=None):
+def make_app(db, st, ctl, token, executor=None, rpc_url=None):
     app = FastAPI()
     token = (token or "").strip()
 
@@ -102,9 +102,10 @@ def make_app(db, st, ctl, token, executor=None):
     async def _selftest():
         import selftest as T
         from sources import Sources
-        src = Sources(st["desk.rpc_url"])
+        url = rpc_url or st["desk.rpc_url"]
+        src = Sources(url)
         try:
-            job["result"] = await T.run(src, st["desk.rpc_url"])
+            job["result"] = await T.run(src, url)
         except Exception as e:
             job["result"] = {"error": f"{type(e).__name__}: {e}"[:300], "steps": []}
         finally:

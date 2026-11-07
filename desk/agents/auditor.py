@@ -4,35 +4,11 @@ import time
 from collections import defaultdict
 
 import fields
-from sources import top_holders
+from sources import top10_pct
 
 log = logging.getLogger("auditor")
 NAMES = ["Mint authority", "Freeze authority", "Dev wallet", "Top 10 holders", "Liquidity",
          "Pool age", "Bundled wallets", "Delegations"]
-
-
-def biggest_group(nodes, edges, holders):
-    """Largest connected component among wallets that hold the mint."""
-    adj = defaultdict(set)
-    for a, b in edges:
-        if a in holders and b in holders:
-            adj[a].add(b)
-            adj[b].add(a)
-    seen, best = set(), 0
-    for n in holders:
-        if n in seen:
-            continue
-        stack, size = [n], 0
-        seen.add(n)
-        while stack:
-            x = stack.pop()
-            size += 1
-            for y in adj[x]:
-                if y not in seen:
-                    seen.add(y)
-                    stack.append(y)
-        best = max(best, size)
-    return best
 
 
 class Auditor:
@@ -53,7 +29,13 @@ class Auditor:
     async def audit(self, scan):
         mint, s = scan["mint"], self.st
         coin = self.db.one("SELECT * FROM coins WHERE mint=?", (mint,))
-        ctx = {"supply": None, "holders": None, "mint_info": None, "rug": None}
+        ctx = {"supply": None, "holders": None, "mint_info": None, "rug": None, "accts": None}
+
+        async def accounts():
+            # one getProgramAccounts per audit, shared by layers 4, 7 and 8
+            if ctx["accts"] is None:
+                ctx["accts"] = await self._retry(self.src.token_accounts, mint)
+            return ctx["accts"]
         layers = []
         reason = None
 
@@ -102,8 +84,9 @@ class Auditor:
             return True, f"{pct:.1f}% · sold 0", "rpc"
 
         async def L4():
-            supply, hold = await self._retry(top_holders, self.src, mint, {scan.get("pool")})
-            pct = 100 * sum(a for _, a in hold[:10]) / supply if supply else 100
+            pct = top10_pct(await accounts(), int(ctx["mint_info"]["supply"]), {scan.get("pool")})
+            if pct is None:
+                return False, "no data: top 10 holders", "rpc"
             ok = pct < s["auditor.max_top10_pct"]
             return ok, f"{pct:.1f}%" if ok else f"top 10 hold {pct:.0f}%", "rpc"
 
@@ -127,17 +110,16 @@ class Auditor:
 
         async def L7():
             g = await self._retry(self.src.rug_graph, mint)
-            nodes, edges = fields.graph_edges(g)
-            if nodes is None:
+            holders = {o for o, _, a in await accounts() if a > 0}
+            size = fields.bundled_size(g, holders)
+            if size is None:
+                log.warning("unrecognised insiders graph for %s: %s", mint, str(g)[:300])
                 return False, "no data: bundles", "rugcheck"
-            _, hold = await self._retry(top_holders, self.src, mint, {scan.get("pool")})
-            holders = {o for o, a in hold if o}
-            size = biggest_group(nodes, edges, holders)
             ok = size < s["auditor.max_bundled"]
             return ok, "None" if size <= 1 else (f"{size} bundled" if ok else f"{size} bundled wallets"), "rugcheck"
 
         async def L8():
-            accts = await self._retry(self.src.token_accounts, mint)
+            accts = await accounts()
             by = defaultdict(int)
             n_holders = 0
             for owner, delegate, amt in accts:

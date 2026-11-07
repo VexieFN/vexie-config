@@ -24,7 +24,8 @@ async def amain():
     st = Settings(db)
     if os.environ.get("TYPESAFE_API_KEY"):
         st.set("analyst.mode", "jev", "boot")
-    src = Sources(st["desk.rpc_url"])
+    rpc_url = os.environ.get("RPC_URL") or st["desk.rpc_url"]
+    src = Sources(rpc_url)
     bus = Bus()
     n = Notifier(os.environ.get("TG_TOKEN"), os.environ.get("TG_CHAT_ID"))
     if st["desk.mode"] == "PAPER" and st["executor.below_min"] == "skip" and st.min_stack() > st["desk.paper_start_stack"]:
@@ -41,7 +42,7 @@ async def amain():
     token = os.environ.get("APP_TOKEN")
     if token:
         import uvicorn
-        app = make_app(db, st, ctl, token, ex)
+        app = make_app(db, st, ctl, token, ex, rpc_url)
         cfg = uvicorn.Config(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), log_level="warning")
         tasks.append(uvicorn.Server(cfg).serve())
     else:

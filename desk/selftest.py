@@ -6,7 +6,7 @@ import time
 from urllib.parse import urlsplit
 
 import fields
-from sources import top_holders
+from sources import top10_pct
 
 SEARCH = "https://api.dexscreener.com/latest/dex/search?q=pumpswap"
 
@@ -38,7 +38,9 @@ async def run(src, rpc_url):
         if not pairs:
             raise RuntimeError("no pumpswap pair in search")
         # newest pair = closest to what the desk audits (fresh graduates, few holders)
-        p = max(pairs, key=lambda p: p.get("pairCreatedAt") or 0)
+        pairs.sort(key=lambda p: p.get("pairCreatedAt") or 0, reverse=True)
+        ctx["others"] = [q["baseToken"]["address"] for q in pairs[1:8]]
+        p = pairs[0]
         ctx["mint"], ctx["pool"] = p["baseToken"]["address"], p.get("pairAddress")
         flat = fields.pair(p)
         return {"mint": ctx["mint"], "pool": ctx["pool"], "missing": [k for k, v in flat.items() if v is None],
@@ -62,17 +64,13 @@ async def run(src, rpc_url):
                 "supply_key": "supply" in mi}
     await step("rpc getSlot + mint info (layers 1-2)", rpc_basic(), out)
 
-    async def top10():
-        supply, hold = await top_holders(src, mint, {ctx["pool"]})
-        return {"supply": supply, "holders_resolved": len(hold),
-                "top10_pct": round(100 * sum(a for _, a in hold[:10]) / supply, 2) if supply else None}
-    await step("rpc top holders (layer 4)", top10(), out)
-
-    async def gpa():
+    async def gpa_top10():
         acc = await src.token_accounts(mint)
+        mi = await src.mint_info(mint)
         return {"token_accounts": len(acc), "holders": sum(1 for _, _, a in acc if a > 0),
-                "with_delegate": sum(1 for _, d, _ in acc if d)}
-    await step("rpc getProgramAccounts (layer 8)", gpa(), out, timeout=40)
+                "with_delegate": sum(1 for _, d, _ in acc if d),
+                "top10_pct_ex_pool": round(top10_pct(acc, int(mi["supply"]), {ctx["pool"]}), 2)}
+    await step("rpc getProgramAccounts (layers 4, 8)", gpa_top10(), out, timeout=40)
 
     async def rug():
         rep = await src.rugcheck(mint)
@@ -83,27 +81,33 @@ async def run(src, rpc_url):
     await step("rugcheck report (layers 3, 5)", rug(), out)
 
     async def graph():
-        g = await src.rug_graph(mint)
-        nodes, edges = fields.graph_edges(g)
-        return {"type": type(g).__name__, "top_keys": sorted(g.keys())[:30] if isinstance(g, dict) else None,
-                "sample": json.dumps(g)[:400] if not isinstance(g, dict) else None,
-                "nodes": None if nodes is None else len(nodes), "edges": None if edges is None else len(edges)}
-    await step("rugcheck insiders graph (layer 7)", graph(), out)
+        # look across several recent coins for a non-empty graph, to see its real shape
+        seen = []
+        for m in [mint] + ctx.get("others", []):
+            g = await src.rug_graph(m)
+            seen.append({"mint": m, "type": type(g).__name__, "len": len(g) if hasattr(g, "__len__") else None,
+                         "bundled_size": fields.bundled_size(g)})
+            if g:
+                return {"checked": seen, "sample": json.dumps(g)[:1500]}
+            await asyncio.sleep(0.3)
+        return {"checked": seen, "sample": "all empty"}
+    await step("rugcheck insiders graph (layer 7)", graph(), out, timeout=40)
 
     async def pumpportal():
         import websockets
         async with websockets.connect("wss://pumpportal.fun/api/data") as ws:
             await ws.send(json.dumps({"method": "subscribeMigration"}))
             msgs = []
-            end = time.time() + 40
-            while time.time() < end and len(msgs) < 3:
+            end = time.time() + 90
+            while time.time() < end and not any("mint" in m for m in msgs):
                 try:
                     msgs.append(json.loads(await asyncio.wait_for(ws.recv(), end - time.time())))
                 except asyncio.TimeoutError:
                     break
             mig = [m for m in msgs if "mint" in m]
             return {"messages": len(msgs), "first_keys": [sorted(m.keys()) for m in msgs],
-                    "mapped": fields.migration(mig[0]) if mig else "no migration in 40s (normal if quiet)"}
-    await step("pumpportal migration stream", pumpportal(), out, timeout=50)
+                    "raw_pool": mig[0].get("pool") if mig else None,
+                    "mapped": fields.migration(mig[0]) if mig else "no migration in 90s (normal if quiet)"}
+    await step("pumpportal migration stream", pumpportal(), out, timeout=100)
 
     return {"rpc": rpc_label, "mint": mint, "steps": out}

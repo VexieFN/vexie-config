@@ -5,7 +5,7 @@ import re
 import time
 
 import fields
-from sources import RateLimited, top_holders
+from sources import RateLimited, top10_pct
 
 log = logging.getLogger("scanner")
 WS = "wss://pumpportal.fun/api/data"
@@ -66,6 +66,26 @@ class Scanner:
             return "pass", None, age
         return "wait", None, age
 
+    async def _top10(self, mint, room):
+        info = await self.src.mint_info(mint)
+        accts = await self.src.token_accounts(mint)
+        return top10_pct(accts, int(info["supply"]), {room.get("pool")})
+
+    async def _ensure_creator(self, mint, room):
+        if room.get("creator"):
+            return
+        try:
+            creator = fields.rug_creator(await self.src.rugcheck(mint))
+        except Exception:
+            return
+        if creator:
+            room["creator"] = creator
+            try:
+                bal = await self.src.owner_balance(creator, mint)
+            except Exception:
+                bal = None
+            self.db.x("UPDATE coins SET creator=?, creator_balance_at_migration=? WHERE mint=?", (creator, bal, mint))
+
     async def tick(self):
         if not self.room:
             return
@@ -74,23 +94,29 @@ class Scanner:
         pairs = await self.src.dex_pairs(list(self.room))
         for mint, room in list(self.room.items()):
             p = pairs.get(mint)
-            if p and p["price"]:
-                self.db.price(mint, p["price"], p["vol_m5"], p["liq"])
-                if (p.get("ch_h24") or 0) >= s["scanner.runner_h24_pct"]:
-                    self.runners.add(norm(p.get("name")))
             age = (now - room["migrated_at"]) / 60
             if not p:
                 if age > s["scanner.max_wait_min"]:
                     self._finish(mint, room, "kill", "never qualified", {}, None, age)
                 continue
+            if p["price"]:
+                self.db.price(mint, p["price"], p["vol_m5"], p["liq"])
+            if (p.get("ch_h24") or 0) >= s["scanner.runner_h24_pct"]:
+                self.runners.add(norm(p.get("name")))
+            if p.get("pair") and room.get("pool") != p["pair"]:
+                room["pool"] = p["pair"]  # real PumpSwap pool address
+                self.db.x("UPDATE coins SET pool=? WHERE mint=?", (p["pair"], mint))
+            await self._ensure_creator(mint, room)
+            # cheap checks first; the RPC-heavy top 10 only when the coin would otherwise pass
+            verdict, reason, age = self.judge(mint, room, p, None, now)
             top10 = None
-            try:
-                supply, hold = await top_holders(self.src, mint, {room.get("pool")})
-                if supply:
-                    top10 = 100 * sum(a for _, a in hold[:10]) / supply
-            except Exception as e:  # noqa
-                log.warning("top10 failed %s", e)
-            verdict, reason, age = self.judge(mint, room, p, top10, now)
+            if verdict == "pass":
+                try:
+                    top10 = await self._top10(mint, room)
+                except Exception as e:
+                    log.warning("top10 failed %s: %s", mint, e)
+                    continue  # retry next tick, never pass without it
+                verdict, reason, age = self.judge(mint, room, p, top10, now)
             if verdict == "wait":
                 if age > s["scanner.max_wait_min"]:
                     self._finish(mint, room, "kill", "never qualified", p, top10, age)
