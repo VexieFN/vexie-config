@@ -57,3 +57,30 @@ async def test_auditor_passes_with_real_graph_shape():
                                                           "liquidityUsd": 100000})
     assert out["passed"], out["layers"]
     assert out["layers"][6]["value"] == "None"
+
+
+def test_live_insiders_graph_sample_2026_11_07():
+    """Truncated real network from RugCheck (mint 87CQ...1UJT)."""
+    F = "Fgej4SPuW282TdrQRfizRHAeRasNqCtAWZizL3jDqMdS"
+    holdings = {"5rmK5QPcPDtXMhgNJz6LABkTNtJnzcWp26bzFq3zJFo6": 145373047520, F: 136078192592,
+                "2CYbdaTFe8tDydS26BUPLURdcfG48grBn8tH2imjpGzC": 3075055265192,
+                "EnajNmJ3mBGHJ6VZ4CDQfzVnRqWbtaqnt3o9THaeUQkV": 136078192592,
+                "71Tp19Kx6YYfFP3ifrBkduYKSYazzXgaG8pgsnbkHXZS": 12065235549,
+                "CKCpQE61cbDkcHvvvAaZ1qbDwp39PRZzNpzVzze3m2kq": 0,
+                "DJtWZyKQESWhMeGtuX7jZgFi7MSLGkfc4oq4A6QuoL5B": 29067183147,
+                "29tKd4h4FsF2czYicypWcrSoigRBn61NH1tZecWM3Jhj": 43776462464}
+    net = {"net_id": "f259e065", "network_type": "transfer",
+           "nodes": [{"id": k, "participant": True, "holdings": v} for k, v in holdings.items()],
+           "links": [{"source": F, "target": t} for t in ("CKCpQE61cbDkcHvvvAaZ1qbDwp39PRZzNpzVzze3m2kq",
+                     "71Tp19Kx6YYfFP3ifrBkduYKSYazzXgaG8pgsnbkHXZS", "2CYbdaTFe8tDydS26BUPLURdcfG48grBn8tH2imjpGzC",
+                     "EnajNmJ3mBGHJ6VZ4CDQfzVnRqWbtaqnt3o9THaeUQkV", "5rmK5QPcPDtXMhgNJz6LABkTNtJnzcWp26bzFq3zJFo6")]}
+    assert fields.bundled_size([net]) == 6
+    current_holders = {k for k, v in holdings.items() if v > 0}       # CKCp sold out
+    assert fields.bundled_size([net], current_holders) == 5            # still >= 5 -> layer 7 red
+
+
+def test_live_pumpportal_migration_message():
+    msg = {"mint": "EjqNrysyT1HaP2nmB76cKTY6zkLFSh7sr5qXNhAVpump", "pool": "pump-amm",
+           "signature": "Lzr8hq", "txType": "migrate"}
+    m = fields.migration(msg)
+    assert m["mint"].endswith("pump") and m["pool"] is None and m["creator"] is None
