@@ -46,3 +46,13 @@ async function bind(id,key){
 function init(){bind('s_stop','risk.stop_pct');bind('s_pct','executor.stack_pct');refresh()}
 if(!tok)showLogin();else init();
 setInterval(()=>{if(tok)refresh()},5000);
+
+$('diag').onclick=async()=>{
+  const b=$('diag');b.disabled=true;b.textContent='In corso… (fino a 1 minuto)';$('diagout').innerHTML='';
+  try{const r=await api('/api/selftest','POST');const txt=JSON.stringify(r,null,1);
+    $('diagout').innerHTML=r.steps.map(s=>`<div class="card"><b>${s.ok?'✓':'✗'} ${esc(s.step)}</b><div class="sub">${s.ms} ms</div></div>`).join('')+
+      '<button id="copy" style="margin-top:8px;background:#2c2c2e;color:#fff">Copia report</button>';
+    $('copy').onclick=async()=>{try{await navigator.clipboard.writeText(txt);$('copy').textContent='Copiato ✓'}catch(e){
+      $('diagout').insertAdjacentHTML('beforeend','<textarea style="width:100%;height:200px;background:#1c1c1e;color:#fff">'+esc(txt)+'</textarea>')}}
+  }catch(e){$('diagout').textContent=e.message}
+  b.disabled=false;b.textContent='Avvia diagnostica'};

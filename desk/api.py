@@ -96,6 +96,16 @@ def make_app(db, st, ctl, token, executor=None):
         db.x("UPDATE positions SET status='closed' WHERE id=? AND status='exiting'", (pid,))
         return {"ok": True}
 
+    @app.post("/api/selftest", dependencies=[Depends(auth)])
+    async def selftest():
+        import selftest as T
+        from sources import Sources
+        src = Sources(st["desk.rpc_url"])
+        try:
+            return await T.run(src, st["desk.rpc_url"])
+        finally:
+            await src.http.aclose()
+
     @app.get("/healthz")
     def healthz():
         return {"ok": True}
