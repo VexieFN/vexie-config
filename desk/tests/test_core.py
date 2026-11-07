@@ -90,3 +90,16 @@ def test_fees():
     assert fee_usd(40) == pytest.approx(0.72)
     assert fee_usd(100) == pytest.approx(0.855)
     assert fee_usd(1000) == pytest.approx(4.5)
+
+
+def test_token_account_slice_parse():
+    from sources import parse_slice, b58
+    owner, dele = bytes(range(1, 33)), bytes([7] * 32)
+    d = owner + (1234).to_bytes(8, "little") + (1).to_bytes(4, "little") + dele
+    o, dg, amt = parse_slice(d)
+    assert o == b58(owner) and dg == b58(dele) and amt == 1234
+    d2 = owner + (0).to_bytes(8, "little") + (0).to_bytes(4, "little") + bytes(32)
+    assert parse_slice(d2) == (b58(owner), None, 0)
+    assert b58(bytes(32)) == "1" * 32
+    # known vector: the System Program id is 32 zero bytes, Token program id round-trip length
+    assert len(b58(bytes([255] * 32))) == 44

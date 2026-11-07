@@ -49,8 +49,12 @@ setInterval(()=>{if(tok)refresh()},5000);
 
 $('diag').onclick=async()=>{
   const b=$('diag');b.disabled=true;b.textContent='In corso… (fino a 1 minuto)';$('diagout').innerHTML='';
-  try{const r=await api('/api/selftest','POST');const txt=JSON.stringify(r,null,1);
-    $('diagout').innerHTML=r.steps.map(s=>`<div class="card"><b>${s.ok?'✓':'✗'} ${esc(s.step)}</b><div class="sub">${s.ms} ms</div></div>`).join('')+
+  try{await api('/api/selftest','POST');let j;
+    for(let i=0;i<60;i++){await new Promise(r=>setTimeout(r,2000));j=await api('/api/selftest');if(!j.running)break}
+    if(j.running)throw new Error('Ancora in corso, riprova tra poco');
+    const r=j.result;const txt=JSON.stringify(r,null,1);
+    if(r.error)$('diagout').insertAdjacentHTML('beforeend','<div class="card neg">'+esc(r.error)+'</div>');
+    $('diagout').innerHTML+=r.steps.map(s=>`<div class="card"><b>${s.ok?'✓':'✗'} ${esc(s.step)}</b><div class="sub">${s.ms} ms</div></div>`).join('')+
       '<button id="copy" style="margin-top:8px;background:#2c2c2e;color:#fff">Copia report</button>';
     $('copy').onclick=async()=>{try{await navigator.clipboard.writeText(txt);$('copy').textContent='Copiato ✓'}catch(e){
       $('diagout').insertAdjacentHTML('beforeend','<textarea style="width:100%;height:200px;background:#1c1c1e;color:#fff">'+esc(txt)+'</textarea>')}}

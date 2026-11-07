@@ -1,5 +1,6 @@
 """All external I/O. Agents depend on this interface so tests can inject a fake."""
 import asyncio
+import base64
 import httpx
 import fields
 
@@ -61,16 +62,37 @@ class Sources:
         return tot
 
     async def token_accounts(self, mint):
-        """getProgramAccounts on Token and Token-2022 filtered by mint. -> list of (owner, delegate, amount)."""
+        """getProgramAccounts on Token and Token-2022 filtered by mint -> list of (owner, delegate, raw_amount).
+        Uses base64 + dataSlice (owner, amount, delegate = 76 bytes/account) instead of jsonParsed:
+        a popular mint can have tens of thousands of accounts and jsonParsed exhausts memory."""
         out = []
         for prog in TOKEN_PROGRAMS:
             res = await self.rpc("getProgramAccounts", [prog, {
-                "encoding": "jsonParsed",
+                "encoding": "base64", "dataSlice": {"offset": 32, "length": 76},
                 "filters": [{"memcmp": {"offset": 0, "bytes": mint}}]}])
             for a in res:
-                info = a["account"]["data"]["parsed"]["info"]
-                out.append((info.get("owner"), info.get("delegate"), float(info["tokenAmount"]["uiAmount"] or 0)))
+                out.append(parse_slice(base64.b64decode(a["account"]["data"][0])))
         return out
+
+
+B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+
+
+def b58(b: bytes) -> str:
+    n = int.from_bytes(b, "big")
+    s = ""
+    while n:
+        n, r = divmod(n, 58)
+        s = B58[r] + s
+    return "1" * (len(b) - len(b.lstrip(b"\0"))) + s
+
+
+def parse_slice(d: bytes):
+    """76-byte slice from offset 32 of an SPL token account: owner(32) amount(u64) delegate COption(4+32)."""
+    owner = b58(d[0:32])
+    amount = int.from_bytes(d[32:40], "little")
+    delegate = b58(d[44:76]) if int.from_bytes(d[40:44], "little") == 1 else None
+    return owner, delegate, amount
 
 
 class RateLimited(Exception):

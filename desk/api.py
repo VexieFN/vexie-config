@@ -1,4 +1,5 @@
 """JSON API + static iPhone app. Every /api call needs APP_TOKEN (Bearer header or ?t=)."""
+import asyncio
 import hmac
 import os
 import time
@@ -96,15 +97,31 @@ def make_app(db, st, ctl, token, executor=None):
         db.x("UPDATE positions SET status='closed' WHERE id=? AND status='exiting'", (pid,))
         return {"ok": True}
 
-    @app.post("/api/selftest", dependencies=[Depends(auth)])
-    async def selftest():
+    job = {"running": False, "result": None, "started": None}
+
+    async def _selftest():
         import selftest as T
         from sources import Sources
         src = Sources(st["desk.rpc_url"])
         try:
-            return await T.run(src, st["desk.rpc_url"])
+            job["result"] = await T.run(src, st["desk.rpc_url"])
+        except Exception as e:
+            job["result"] = {"error": f"{type(e).__name__}: {e}"[:300], "steps": []}
         finally:
+            job["running"] = False
             await src.http.aclose()
+
+    @app.post("/api/selftest", dependencies=[Depends(auth)])
+    async def selftest_start():
+        """Runs in the background: a long request would be cut by the Fly proxy."""
+        if not job["running"]:
+            job.update(running=True, result=None, started=time.time())
+            asyncio.get_running_loop().create_task(_selftest())
+        return {"running": True}
+
+    @app.get("/api/selftest", dependencies=[Depends(auth)])
+    def selftest_status():
+        return job
 
     @app.get("/healthz")
     def healthz():

@@ -37,7 +37,8 @@ async def run(src, rpc_url):
         pairs = [p for p in r.json().get("pairs", []) if p.get("chainId") == "solana" and p.get("dexId") == "pumpswap"]
         if not pairs:
             raise RuntimeError("no pumpswap pair in search")
-        p = max(pairs, key=lambda p: (p.get("liquidity") or {}).get("usd") or 0)
+        # newest pair = closest to what the desk audits (fresh graduates, few holders)
+        p = max(pairs, key=lambda p: p.get("pairCreatedAt") or 0)
         ctx["mint"], ctx["pool"] = p["baseToken"]["address"], p.get("pairAddress")
         flat = fields.pair(p)
         return {"mint": ctx["mint"], "pool": ctx["pool"], "missing": [k for k, v in flat.items() if v is None],
@@ -69,7 +70,8 @@ async def run(src, rpc_url):
 
     async def gpa():
         acc = await src.token_accounts(mint)
-        return {"token_accounts": len(acc), "with_delegate": sum(1 for _, d, _ in acc if d)}
+        return {"token_accounts": len(acc), "holders": sum(1 for _, _, a in acc if a > 0),
+                "with_delegate": sum(1 for _, d, _ in acc if d)}
     await step("rpc getProgramAccounts (layer 8)", gpa(), out, timeout=40)
 
     async def rug():
