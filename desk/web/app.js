@@ -9,6 +9,7 @@ $('enter').onclick=async()=>{const t=$('pw').value.trim();if(!t)return;
   const r=await fetch('/api/state',{headers:{Authorization:'Bearer '+t}}).catch(()=>null);
   if(r&&r.ok){save(t);$('pw').value='';$('login').classList.remove('show');init()}
   else showLogin(r?'Password sbagliata':'Desk non raggiungibile')};
+$('show').onclick=()=>{const t=$('pw').type=='password';$('pw').type=t?'text':'password';$('show').textContent=t?'Nascondi':'Mostra'};
 $('pw').onkeydown=e=>{if(e.key==='Enter')$('enter').click()};
 $('logout').onclick=()=>{save('');try{localStorage.removeItem('tok')}catch(e){}showLogin()};
 async function api(path,method='GET',body){

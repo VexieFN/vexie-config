@@ -44,3 +44,10 @@ def test_telegram_commands():
     assert "Spento" in t.handle_text("/off") and not ctl.active
     assert "6 -> 8" in t.handle_text("set stop to -8%")
     assert "bloccato" in t.handle_text("LIVE")
+
+
+def test_token_whitespace_tolerated():
+    db = DB(); st = Settings(db); ctl = Control(db)
+    c = TestClient(make_app(db, st, ctl, "secret\n "))
+    assert c.get("/api/state", headers={"Authorization": "Bearer  secret "}).status_code == 200
+    assert c.get("/api/state", headers={"Authorization": "Bearer Secret"}).status_code == 401

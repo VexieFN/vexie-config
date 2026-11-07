@@ -17,10 +17,11 @@ WEB = os.path.join(os.path.dirname(__file__), "web")
 
 def make_app(db, st, ctl, token, executor=None):
     app = FastAPI()
+    token = (token or "").strip()
 
     def auth(request: Request):
-        got = request.headers.get("authorization", "").removeprefix("Bearer ").strip() or request.query_params.get("t", "")
-        if not token or not hmac.compare_digest(got, token):
+        got = (request.headers.get("authorization", "").removeprefix("Bearer ") or request.query_params.get("t", "")).strip()
+        if not token or not hmac.compare_digest(got.encode(), token.encode()):
             raise HTTPException(401)
 
     @app.get("/api/state", dependencies=[Depends(auth)])
