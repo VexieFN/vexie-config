@@ -7,7 +7,7 @@
 <style>
 :root{--bg:#000;--card:#1c1c1e;--tx:#fff;--t2:rgba(235,235,245,.6);--g:#00d35a;--r:#ff453a;--o:#ff9f0a}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:16px -apple-system,system-ui,sans-serif;
-padding:env(safe-area-inset-top) 16px calc(24px + env(safe-area-inset-bottom));font-variant-numeric:tabular-nums}
+padding:calc(16px + env(safe-area-inset-top)) 16px calc(24px + env(safe-area-inset-bottom));font-variant-numeric:tabular-nums}
 h1{font-size:15px;font-weight:600;color:var(--t2);margin:20px 0 4px}
 .bal{font-size:56px;font-weight:700;letter-spacing:-1px}.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .pill{border-radius:999px;padding:4px 10px;font-size:13px;font-weight:600;background:var(--card)}
@@ -18,8 +18,15 @@ button{font:inherit;font-weight:600;border:0;border-radius:14px;min-height:56px;
 a.btn{display:block;text-align:center;background:var(--g);color:#000;text-decoration:none;font-weight:600;border-radius:12px;padding:12px;margin-top:8px}
 .pos{color:var(--g)}.neg{color:var(--r)}.sub{color:var(--t2);font-size:13px}
 #err{color:var(--r);font-size:13px;min-height:16px}
+#login{position:fixed;inset:0;background:var(--bg);display:none;flex-direction:column;justify-content:center;padding:0 16px}
+#login.show{display:flex}
 input{width:100%;min-height:44px;border-radius:10px;border:0;background:#2c2c2e;color:#fff;padding:0 10px;font:inherit}
 </style></head><body>
+<div id="login"><div class="bal" style="font-size:34px">Desk</div>
+<div class="sub" style="margin:8px 0 16px">Inserisci la password dell'app (il valore di APP_TOKEN)</div>
+<input id="pw" type="password" autocomplete="current-password" placeholder="Password">
+<div id="lerr" class="sub" style="color:var(--r);min-height:20px;margin-top:8px"></div>
+<button id="enter" class="off">Entra</button></div>
 <div class="row"><div class="bal" id="bal">–</div><span class="pill" id="mode"></span></div>
 <div class="sub" id="pnl">&nbsp;</div><div id="err"></div>
 <button id="go" class="off">…</button>
@@ -29,4 +36,5 @@ input{width:100%;min-height:44px;border-radius:10px;border:0;background:#2c2c2e;
 <h1>Impostazioni rapide</h1>
 <div class="card"><div class="sub">Stop %</div><input id="s_stop" type="number" step="0.5" inputmode="decimal">
 <div class="sub" style="margin-top:8px">Stack % per trade</div><input id="s_pct" type="number" step="0.5" inputmode="decimal"></div>
+<button id="logout" style="margin-top:24px;background:#2c2c2e;color:#fff">Esci</button>
 <script src="app.js"></script></body></html>

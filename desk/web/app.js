@@ -3,9 +3,18 @@ const m=location.hash.match(/t=([^&]+)/);
 if(m){try{localStorage.setItem('tok',m[1])}catch(e){}history.replaceState(null,'',location.pathname)}
 let tok='';try{tok=localStorage.getItem('tok')||''}catch(e){}
 let running=false;
+function save(t){tok=t;try{localStorage.setItem('tok',t)}catch(e){}}
+function showLogin(msg){$('login').classList.add('show');$('lerr').textContent=msg||'';$('pw').focus()}
+$('enter').onclick=async()=>{const t=$('pw').value.trim();if(!t)return;
+  const r=await fetch('/api/state',{headers:{Authorization:'Bearer '+t}}).catch(()=>null);
+  if(r&&r.ok){save(t);$('pw').value='';$('login').classList.remove('show');init()}
+  else showLogin(r?'Password sbagliata':'Desk non raggiungibile')};
+$('pw').onkeydown=e=>{if(e.key==='Enter')$('enter').click()};
+$('logout').onclick=()=>{save('');try{localStorage.removeItem('tok')}catch(e){}showLogin()};
 async function api(path,method='GET',body){
   const r=await fetch(path,{method,headers:{Authorization:'Bearer '+tok,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});
-  if(!r.ok)throw new Error(r.status==401?'Token non valido: riapri il link con #t=...':(await r.json().catch(()=>({}))).detail||r.status);
+  if(r.status==401){showLogin('Password sbagliata o scaduta');throw new Error('Accesso richiesto')}
+  if(!r.ok)throw new Error(r.status==401?'':(await r.json().catch(()=>({}))).detail||r.status);
   return r.json();
 }
 const usd=n=>(n<0?'-':'+')+'$'+Math.abs(n).toFixed(2);
@@ -33,5 +42,6 @@ $('go').onclick=async()=>{
 async function bind(id,key){
   const el=$(id);try{el.value=(await api('/api/settings'))[key].value}catch(e){}
   el.onchange=async()=>{try{await api('/api/settings','POST',{key,value:el.value});$('err').textContent=''}catch(e){$('err').textContent=e.message}}}
-bind('s_stop','risk.stop_pct');bind('s_pct','executor.stack_pct');
-refresh();setInterval(refresh,5000);
+function init(){bind('s_stop','risk.stop_pct');bind('s_pct','executor.stack_pct');refresh()}
+if(!tok)showLogin();else init();
+setInterval(()=>{if(tok)refresh()},5000);
