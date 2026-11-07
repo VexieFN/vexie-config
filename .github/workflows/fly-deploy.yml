@@ -1,0 +1,71 @@
+name: Deploy desk to Fly.io
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [claude/gifted-sagan-q1yvl1]
+    paths: ["desk/**", ".github/workflows/fly-deploy.yml"]
+
+concurrency: fly-deploy
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: desk
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      FLY_APP: ${{ vars.FLY_APP }}
+      APP_TOKEN: ${{ secrets.APP_TOKEN }}
+      TG_TOKEN: ${{ secrets.TG_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Tests
+        run: |
+          pip install -r requirements-dev.txt
+          python -m pytest -q
+
+      - name: Check configuration
+        id: cfg
+        run: |
+          missing=""
+          [ -z "$FLY_API_TOKEN" ] && missing="$missing secret:FLY_API_TOKEN"
+          [ -z "$APP_TOKEN" ] && missing="$missing secret:APP_TOKEN"
+          [ -z "$FLY_APP" ] && missing="$missing variable:FLY_APP"
+          if [ -n "$missing" ]; then
+            echo "::warning::Deploy skipped, missing:$missing"
+            echo "go=no" >> "$GITHUB_OUTPUT"
+          else
+            echo "go=yes" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install flyctl
+        if: steps.cfg.outputs.go == 'yes'
+        run: |
+          curl -fsSL https://fly.io/install.sh | sh
+          echo "$HOME/.fly/bin" >> "$GITHUB_PATH"
+
+      - name: Create app and volume if missing
+        if: steps.cfg.outputs.go == 'yes'
+        run: |
+          flyctl status -a "$FLY_APP" >/dev/null 2>&1 || flyctl apps create "$FLY_APP"
+          flyctl volumes list -a "$FLY_APP" | grep -q desk_data || \
+            flyctl volumes create desk_data --size 1 --region fra -a "$FLY_APP" --yes
+
+      - name: Set app secrets
+        if: steps.cfg.outputs.go == 'yes'
+        run: |
+          flyctl secrets set --stage -a "$FLY_APP" APP_TOKEN="$APP_TOKEN"
+          if [ -n "$TG_TOKEN" ]; then flyctl secrets set --stage -a "$FLY_APP" TG_TOKEN="$TG_TOKEN"; fi
+
+      - name: Deploy
+        if: steps.cfg.outputs.go == 'yes'
+        run: |
+          flyctl deploy -a "$FLY_APP" --remote-only --ha=false
+          echo "### App online: https://$FLY_APP.fly.dev" >> "$GITHUB_STEP_SUMMARY"
