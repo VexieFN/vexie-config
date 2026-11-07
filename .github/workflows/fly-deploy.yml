@@ -20,9 +20,9 @@ jobs:
       APP_TOKEN: ${{ secrets.APP_TOKEN }}
       TG_TOKEN: ${{ secrets.TG_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -38,6 +38,10 @@ jobs:
           [ -z "$FLY_API_TOKEN" ] && missing="$missing secret:FLY_API_TOKEN"
           [ -z "$APP_TOKEN" ] && missing="$missing secret:APP_TOKEN"
           [ -z "$FLY_APP" ] && missing="$missing variable:FLY_APP"
+          if [ -n "$FLY_APP" ] && ! echo "$FLY_APP" | grep -Eq '^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$'; then
+            echo "::error::FLY_APP='$FLY_APP' is not a valid Fly app name. Use only lowercase letters, numbers and dashes (e.g. desk-vertex-giuseppe). Change it in Settings > Secrets and variables > Actions > Variables."
+            exit 1
+          fi
           if [ -n "$missing" ]; then
             echo "::warning::Deploy skipped, missing:$missing"
             echo "go=no" >> "$GITHUB_OUTPUT"
@@ -51,10 +55,23 @@ jobs:
           curl -fsSL https://fly.io/install.sh | sh
           echo "$HOME/.fly/bin" >> "$GITHUB_PATH"
 
+      - name: Check Fly token
+        if: steps.cfg.outputs.go == 'yes'
+        run: |
+          if ! flyctl orgs list; then
+            echo "::error::FLY_API_TOKEN is not valid. Create a new token on fly.io (Tokens) and replace the GitHub secret."
+            exit 1
+          fi
+
       - name: Create app and volume if missing
         if: steps.cfg.outputs.go == 'yes'
         run: |
-          flyctl status -a "$FLY_APP" >/dev/null 2>&1 || flyctl apps create "$FLY_APP"
+          if ! flyctl status -a "$FLY_APP" >/dev/null 2>&1; then
+            if ! flyctl apps create "$FLY_APP" --org personal; then
+              echo "::error::Could not create app '$FLY_APP'. Most likely: (1) the name is taken by someone else: pick a more unique FLY_APP; (2) the token is a deploy token: create an ORGANIZATION token on fly.io; (3) no payment method on the Fly account: add a card in Billing."
+              exit 1
+            fi
+          fi
           flyctl volumes list -a "$FLY_APP" | grep -q desk_data || \
             flyctl volumes create desk_data --size 1 --region fra -a "$FLY_APP" --yes
 
